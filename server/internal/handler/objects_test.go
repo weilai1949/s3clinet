@@ -575,7 +575,10 @@ func TestCopyManyAsyncAndDeletePrefixAsync(t *testing.T) {
 func TestCopyPrefix(t *testing.T) {
 	page1 := []string{"src/a.txt", "src/b.txt"}
 	page2 := []string{"src/sub/c.txt"}
-	var copySources []string
+	var (
+		copyMu      sync.Mutex
+		copySources []string
+	)
 	s3fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2":
@@ -585,7 +588,9 @@ func TestCopyPrefix(t *testing.T) {
 				io.WriteString(w, listBucketXML(page1, true, "tok2"))
 			}
 		case r.Method == http.MethodPut && r.Header.Get("X-Amz-Copy-Source") != "":
+			copyMu.Lock()
 			copySources = append(copySources, r.Header.Get("X-Amz-Copy-Source"))
+			copyMu.Unlock()
 			io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult><ETag>"e"</ETag></CopyObjectResult>`)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
