@@ -181,7 +181,7 @@ cd server && S3CLINET_E2E=1 go test ./internal/s3wrap/ -run 'TestE2E' -v
 # 可选环境变量：S3CLINET_ENDPOINT / S3CLINET_ACCESS_KEY / S3CLINET_SECRET_KEY
 ```
 
-CI：GitHub Actions（`.github/workflows/ci.yml`）在 push/PR 时运行 Go vet/test/build、Web typecheck/build 与 Docker 镜像构建。
+CI：GitHub Actions（`.github/workflows/ci.yml`）在 push/PR 时运行 Go vet/test/build、Web typecheck/build 与 Docker 镜像构建。推送 `v*` tag（或手动 `workflow_dispatch`）时，`.github/workflows/release-desktop.yml` 会在 Windows / Linux / macOS 分别打出 `.exe`（NSIS）、`.deb`、`.dmg`，并挂到该 tag 对应的 [GitHub Release](https://github.com/weilai1949/s3clinet/releases)（Tags 页可看到 Assets）。
 
 ## 用到的 S3 SDK for Go v2 接口
 
