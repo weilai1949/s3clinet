@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### 工程化
+- **桌面发版 CI**：`release-desktop.yml` 在 `v*` tag（或手动指定 tag）时交叉构建 NSIS `.exe` / `.deb` / `.dmg`，并上传到对应 GitHub Release。
+
 ## [v1.0.0-rc0] - 2026-09-02
 
 首次候选发布（`develop` 全栈快照）。相对时间戳构建的主要增量：CI（gofmt / golangci-lint v2 / desktop cargo / race）打通；不做服务降级与无历史加密/账号文件格式兼容。
