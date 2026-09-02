@@ -994,4 +994,3 @@ func TestListObjectsAndDeleteObjects(t *testing.T) {
 		t.Fatalf("delete empty keys=%d, want 400", rr3.Code)
 	}
 }
-

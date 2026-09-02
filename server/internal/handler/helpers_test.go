@@ -114,4 +114,3 @@ func TestReadJSONRequiresJSONContentType(t *testing.T) {
 		t.Fatalf("text/plain body = %d, want 400", rr.Code)
 	}
 }
-

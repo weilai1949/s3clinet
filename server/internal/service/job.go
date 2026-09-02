@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	JobTTL           = 30 * time.Minute
-	JobTimeout       = 2 * time.Hour
+	JobTTL            = 30 * time.Minute
+	JobTimeout        = 2 * time.Hour
 	SSEHeartbeatEvery = 15 * time.Second
 )
 

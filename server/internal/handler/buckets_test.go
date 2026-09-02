@@ -226,4 +226,3 @@ func TestListBuckets(t *testing.T) {
 		t.Fatalf("buckets = %+v", resp.Buckets)
 	}
 }
-

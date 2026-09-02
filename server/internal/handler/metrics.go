@@ -11,11 +11,11 @@ import (
 )
 
 var (
-	metricHTTPTotal   atomic.Int64
-	metricHTTP2xx     atomic.Int64
-	metricHTTP4xx     atomic.Int64
-	metricHTTP5xx     atomic.Int64
-	metricStartedAt   = time.Now()
+	metricHTTPTotal atomic.Int64
+	metricHTTP2xx   atomic.Int64
+	metricHTTP4xx   atomic.Int64
+	metricHTTP5xx   atomic.Int64
+	metricStartedAt = time.Now()
 )
 
 func init() {
