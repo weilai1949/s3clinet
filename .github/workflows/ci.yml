@@ -42,13 +42,11 @@ jobs:
         run: go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.64.8
+          version: v2.13.2
           working-directory: server
           args: --timeout=5m
-          # 首次接入：允许现存告警，仅在配置/语法错误时失败
-          only-new-issues: true
 
       - name: Test (race + cover)
         working-directory: server
@@ -131,6 +129,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Placeholder frontendDist for tauri generate_context
+        run: |
+          mkdir -p web/dist
+          printf '%s\n' '<!doctype html><title>ci</title>' > web/dist/index.html
       - name: cargo check
         working-directory: desktop/src-tauri
         run: cargo check --locked

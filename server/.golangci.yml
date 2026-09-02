@@ -1,9 +1,11 @@
-# golangci-lint 基线（errcheck / staticcheck / gosec 子集）
+# golangci-lint v2（配合 Go 1.26+）
+version: "2"
+
 run:
-  timeout: 5m
   tests: true
 
 linters:
+  default: none
   enable:
     - errcheck
     - staticcheck
@@ -11,21 +13,30 @@ linters:
     - ineffassign
     - unused
     - gosec
-
-linters-settings:
-  gosec:
-    excludes:
-      - G104 # 审计日志类错误忽略在 handler 流式路径常见
-  errcheck:
-    exclude-functions:
-      - io.Copy
-      - (*bufio.Writer).Flush
+  settings:
+    gosec:
+      excludes:
+        - G104 # handler 流式路径常见的审计忽略
+        - G109 # maxKeys 等已钳制到 <=1000 再转 int32
+        - G117 # Account JSON 含 accessKey/secretKey 字段名属预期（落盘加密/权限由 store 保证）
+        - G304 # 数据目录/临时文件路径由服务端配置与代码构造，非用户任意路径
+        - G704 # S3 HTTP 客户端已在 Dial/CheckRedirect 层做 SSRF 拦截
+    errcheck:
+      exclude-functions:
+        - io.Copy
+        - (*bufio.Writer).Flush
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
   max-issues-per-linter: 50
   max-same-issues: 10

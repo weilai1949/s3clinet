@@ -23,7 +23,7 @@ func TestJobRegistryLifecycle(t *testing.T) {
 	select {
 	case p := <-ch:
 		if p.Migrated != 0 && p.Migrated != 1 {
-			// first may be initial running(0) or emit(1)
+			t.Fatalf("unexpected migrated=%d", p.Migrated)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no progress")

@@ -128,8 +128,8 @@ func (h *Handler) writeInternalErr(w http.ResponseWriter, err error, publicMsg s
 			if msg == "" {
 				msg = publicMsg
 			}
-			if publicMsg == "" {
-				publicMsg = msg
+			if msg == "" {
+				msg = "storage operation failed"
 			}
 			h.log.Debug("s3 mapped error", "err", err, "status", code, "public", msg)
 			h.writeErr(w, code, msg)

@@ -64,11 +64,24 @@ func (c *Client) GetLifecycle(ctx context.Context, bucket string) ([]LifecycleRu
 		}
 		specs = append(specs, LifecycleRuleSpec{
 			ID:     derefString(r.ID),
-			Prefix: derefString(r.Prefix),
+			Prefix: lifecycleRulePrefix(r),
 			Days:   d,
 		})
 	}
 	return specs, nil
+}
+
+func lifecycleRulePrefix(r types.LifecycleRule) string {
+	if r.Filter != nil {
+		if r.Filter.Prefix != nil {
+			return *r.Filter.Prefix
+		}
+		if r.Filter.And != nil && r.Filter.And.Prefix != nil {
+			return *r.Filter.And.Prefix
+		}
+	}
+	// 旧配置可能只有 deprecated Prefix 字段。
+	return derefString(r.Prefix) //nolint:staticcheck // SA1019: read legacy Prefix
 }
 
 // PutLifecycle 覆盖写入桶的生命周期规则（全部规则一次提交）。
@@ -77,7 +90,7 @@ func (c *Client) PutLifecycle(ctx context.Context, bucket string, specs []Lifecy
 	for _, s := range specs {
 		rules = append(rules, types.LifecycleRule{
 			ID:     aws.String(s.ID),
-			Prefix: aws.String(s.Prefix),
+			Filter: &types.LifecycleRuleFilter{Prefix: aws.String(s.Prefix)},
 			Status: types.ExpirationStatusEnabled,
 			Expiration: &types.LifecycleExpiration{
 				Days: aws.Int32(s.Days),

@@ -14,5 +14,3 @@ func s3HTTPStatus(err error) int { return s3wrap.HTTPStatus(err) }
 func batchItemError(key string, err error) string {
 	return "failed at " + key + ": " + s3UserMessage(err)
 }
-
-func isEntityTooLarge(err error) bool { return s3wrap.IsEntityTooLarge(err) }

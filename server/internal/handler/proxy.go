@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/weilai1949/s3clinet/server/internal/s3wrap"
-	"github.com/weilai1949/s3clinet/server/internal/service"
 )
 
 // proxyObject 安全代理对象内容：
@@ -67,7 +66,7 @@ func (h *Handler) proxyObject(w http.ResponseWriter, r *http.Request) {
 		}
 		beginStreamResponse(w)
 		w.WriteHeader(http.StatusOK)
-		w.Write(buf[:n])
+		_, _ = w.Write(buf[:n])
 
 	case "inline", "download":
 		rng := r.Header.Get("Range")
@@ -144,9 +143,6 @@ func (h *Handler) proxyErr(w http.ResponseWriter, err error) {
 	}
 	h.writeInternalErr(w, err, "failed to proxy object")
 }
-
-// sanitizeZipName 委托 service 防腐/路径消毒。
-func sanitizeZipName(key string) string { return service.SanitizeZipName(key) }
 
 // sanitizeFilename 去除文件名中的路径分隔符与引号，避免 Content-Disposition 注入。
 func sanitizeFilename(name string) string {
