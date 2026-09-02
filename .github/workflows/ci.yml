@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, init]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Go 后端（gofmt / vet / race / cover / build）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: gofmt
+        working-directory: server
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: server
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+          working-directory: server
+          args: --timeout=5m
+          # 首次接入：允许现存告警，仅在配置/语法错误时失败
+          only-new-issues: true
+
+      - name: Test (race + cover)
+        working-directory: server
+        run: |
+          go test -race -count=1 -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tee coverage.txt
+          # 整体覆盖率守卫（当前基线约 61%；防止显著回退）
+          pct=$(go tool cover -func=coverage.out | awk '/total:/ {gsub(/%/,"",$3); print $3}')
+          awk -v p="$pct" 'BEGIN { if (p+0 < 55) { print "coverage " p "% < 55%"; exit 1 } }'
+
+      - name: Build
+        working-directory: server
+        run: go build -ldflags="-X main.version=ci" -o /dev/null .
+
+  web:
+    name: Web 前端（typecheck / test / build）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        working-directory: web
+        run: pnpm lint
+
+      - name: Typecheck
+        working-directory: web
+        run: pnpm typecheck
+
+      - name: Test
+        working-directory: web
+        run: pnpm test
+
+      - name: Build
+        working-directory: web
+        run: pnpm build
+
+  docker:
+    name: Docker 镜像构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: false
+          tags: s3clinet/server:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  desktop:
+    name: Desktop（cargo check）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check --locked
+
+  # 完整 Tauri 链接较重（webkit 依赖 + 前端 build），仅手动触发，不阻塞 PR。
+  desktop-build:
+    name: Desktop（tauri build --no-bundle）
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Build web
+        working-directory: web
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: tauri build --no-bundle
+        working-directory: desktop
+        run: |
+          pnpm install --frozen-lockfile || true
+          cargo install tauri-cli --version "^2" --locked || true
+          cd src-tauri && cargo tauri build --no-bundle

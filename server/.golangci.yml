@@ -1,0 +1,31 @@
+# golangci-lint 基线（errcheck / staticcheck / gosec 子集）
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - govet
+    - ineffassign
+    - unused
+    - gosec
+
+linters-settings:
+  gosec:
+    excludes:
+      - G104 # 审计日志类错误忽略在 handler 流式路径常见
+  errcheck:
+    exclude-functions:
+      - io.Copy
+      - (*bufio.Writer).Flush
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+  max-issues-per-linter: 50
+  max-same-issues: 10

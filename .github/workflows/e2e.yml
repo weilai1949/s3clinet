@@ -1,0 +1,67 @@
+name: E2E (RustFS)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'server/internal/s3wrap/**'
+      - 'server/go.mod'
+      - 'server/go.sum'
+      - 'docker-compose.yml'
+      - '.github/workflows/e2e.yml'
+  schedule:
+    # 每周一 02:00 UTC 冒烟
+    - cron: '0 2 * * 1'
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rustfs-e2e:
+    name: RustFS 端到端联调
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: Prepare .env for compose
+        run: |
+          cp .env.example .env
+          # CI 使用示例凭据即可（仅回环发布）
+          sed -i 's/^S3C_TOKEN=.*/S3C_TOKEN=ci-e2e-token-openssl-rand-hex-32/' .env
+
+      - name: Start RustFS
+        run: docker compose up -d rustfs
+
+      - name: Wait for RustFS
+        run: |
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:9000/health && exit 0
+            sleep 2
+          done
+          echo "RustFS not ready" >&2
+          docker compose logs rustfs
+          exit 1
+
+      - name: E2E test
+        working-directory: server
+        env:
+          S3CLINET_E2E: "1"
+          S3CLINET_ENDPOINT: http://127.0.0.1:9000
+          S3CLINET_ACCESS_KEY: rustfsadmin
+          S3CLINET_SECRET_KEY: rustfsadmin
+        run: go test ./internal/s3wrap/ -run 'TestE2E' -v -count=1
+
+      - name: Stop RustFS
+        if: always()
+        run: docker compose down

@@ -1,0 +1,19 @@
+[package]
+name = "s3clinet"
+version = "1.0.0-20260901182023"
+description = "S3 v4 signed client desktop shell (B/S, no IPC)"
+authors = ["weilai1949"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# 用于打包发布（custom protocol serve bundled assets）
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]

@@ -1,0 +1,17 @@
+# TLS 叠加：在 prod 基础上启用 nginx 443 + 证书挂载。
+# 用法：
+#   mkdir -p certs && 放入 fullchain.pem / privkey.pem
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d --build
+#
+# 默认对外发布 80/443（HTTP 301→HTTPS）。若仍需仅本机访问，改 ports 为 127.0.0.1:443:443。
+
+services:
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.docker.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d/s3clinet-tls.example.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - ./certs/privkey.pem:/etc/nginx/certs/privkey.pem:ro

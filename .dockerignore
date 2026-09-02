@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/target
+**/.git
+server/data
+server/s3clinet-server
+server/*.log
+desktop/src-tauri/gen
+desktop/src-tauri/icons/source.png
+.env
+.env.*
