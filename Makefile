@@ -1,6 +1,6 @@
 # 版本号：日常发版 v1.0.0-YYYYMMDDHHmmss；预发布可用 v1.0.0-rcN。
 # 手动覆盖构建：make VERSION=v1.0.0-rc0 server-build
-VERSION ?= v1.0.0-rc0
+VERSION ?= v1.0.0-rc1
 
 .PHONY: server server-build web web-build web-typecheck desktop-dev desktop-build test web-test test-all vet docker all dev dev-nginx restart restart-server restart-web restart-nginx restart-docker restart-all stop status
 

@@ -13,7 +13,7 @@ S3 错误码与用户消息对照见 [`docs/ERRORS.md`](./ERRORS.md)。
 GET /api/health
 ```
 ```json
-200 {"status":"ok","version":"v1.0.0-rc0","time":"...","store":{"ok":true}}
+200 {"status":"ok","version":"v1.0.0-rc1","time":"...","store":{"ok":true}}
 ```
 `version` 为服务端版本号（构建时经 ldflags 注入），可用来核对前后端版本是否匹配。store 探测失败时返回 `503` + `"status":"error"`（不做降级；不健康即失败）。
 

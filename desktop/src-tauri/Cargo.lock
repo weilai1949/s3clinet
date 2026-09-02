@@ -2519,7 +2519,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "s3clinet"
-version = "1.0.0-rc0"
+version = "1.0.0-rc1"
 dependencies = [
  "serde",
  "serde_json",

@@ -1,6 +1,6 @@
 [package]
 name = "s3clinet"
-version = "1.0.0-rc0"
+version = "1.0.0-rc1"
 description = "S3 v4 signed client desktop shell (B/S, no IPC)"
 authors = ["weilai1949"]
 edition = "2021"

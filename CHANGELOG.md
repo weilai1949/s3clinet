@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [v1.0.0-rc1] - 2026-09-02
+
+相对 `v1.0.0-rc0`：桌面安装包由 CI 在打 tag 时交叉构建并挂到 GitHub Release。
+
 ### 工程化
 - **桌面发版 CI**：`release-desktop.yml` 在 `v*` tag（或手动指定 tag）时交叉构建 NSIS `.exe` / `.deb` / `.dmg`，并上传到对应 GitHub Release。
 
