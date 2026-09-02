@@ -127,6 +127,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: System deps (webkit/gtk for tauri/wry)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: cargo check
         working-directory: desktop/src-tauri
         run: cargo check --locked
