@@ -2,7 +2,7 @@
 
 S3 兼容对象存储客户端工具，使用 **AWS Signature V4** 签名。提供 **Web 端** 与 **Tauri 2 桌面端**；桌面端采用 **B/S 架构**，不使用 Tauri IPC，前后端全部通过 HTTP 通信。
 
-版本命名：稳定里程碑 **v1.0.0** 之后改用**时间戳**（`v1.0.0-年月日十分秒`，即 `v1.0.0-YYYYMMDDHHmmss`），当前版本 `v1.0.0-20260901182023`；详见 [Changelog](CHANGELOG.md)。
+版本命名：稳定里程碑 **v1.0.0** 之后日常发版用**时间戳**（`v1.0.0-YYYYMMDDHHmmss`），预发布可用 **`v1.0.0-rcN`**；当前版本 `v1.0.0-rc0`；详见 [Changelog](CHANGELOG.md)。
 
 [!TIP]
 - 后端默认绑定 `127.0.0.1`（更安全），并开启 CORS 白名单与可选 Bearer 鉴权。
@@ -103,8 +103,8 @@ docker compose up -d --build
 docker compose -f docker-compose.prod.yml up -d --build
 
 # 仅运行服务端（外部 S3）
-docker build -f server/Dockerfile -t s3clinet/server:v1.0.0-20260901182023 --build-arg GOPROXY=https://goproxy.io,direct .
-docker run -d --name s3clinet -p 8080:8080 -e S3C_TOKEN="$(openssl rand -hex 32)" -v s3c-data:/data s3clinet/server:v1.0.0-20260901182023
+docker build -f server/Dockerfile -t s3clinet/server:v1.0.0-rc0 --build-arg GOPROXY=https://goproxy.io,direct .
+docker run -d --name s3clinet -p 8080:8080 -e S3C_TOKEN="$(openssl rand -hex 32)" -v s3c-data:/data s3clinet/server:v1.0.0-rc0
 ```
 
 访问：Web `http://127.0.0.1:8080`（经 **nginx**，`worker_processes 1` 反向代理 Go 后端）；RustFS 控制台 `http://127.0.0.1:9001`（凭据见 `.env` 中 `RUSTFS_*`，勿用默认口令上生产）。
@@ -168,7 +168,8 @@ cd web && pnpm typecheck          # 前端类型检查（vue-tsc）
 
 ```bash
 ./scripts/release-version.sh              # 自动生成 v1.0.0-YYYYMMDDHHmmss
-./scripts/release-version.sh v1.0.0-20260902120000  # 指定版本
+./scripts/release-version.sh v1.0.0-20260902120000  # 指定时间戳版本
+./scripts/release-version.sh v1.0.0-rc0             # 指定预发布版本
 ```
 
 覆盖：store CRUD/持久化/脱敏/原子写/文件权限，s3wrap endpoint 归一化，handler 的 CORS 策略/鉴权/账号校验/迁移端点判断/SPA fallback/copy 部分失败（内置假 S3）。

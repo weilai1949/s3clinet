@@ -1,6 +1,6 @@
 {
   "name": "s3clinet-desktop",
-  "version": "1.0.0-20260901182023",
+  "version": "1.0.0-rc0",
   "private": true,
   "scripts": {
     "dev": "tauri dev",

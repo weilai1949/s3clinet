@@ -15,7 +15,7 @@ services:
       args:
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
-    image: s3clinet/server:${S3C_IMAGE_TAG:-v1.0.0-20260901182023}
+    image: s3clinet/server:${S3C_IMAGE_TAG:-v1.0.0-rc0}
     container_name: s3clinet-server
     restart: unless-stopped
     stop_signal: SIGTERM

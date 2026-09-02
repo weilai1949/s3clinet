@@ -1,6 +1,6 @@
 {
   "name": "s3clinet-web",
-  "version": "1.0.0-20260901182023",
+  "version": "1.0.0-rc0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.15.0",

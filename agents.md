@@ -53,9 +53,9 @@ cd server && S3CLINET_E2E=1 go test ./internal/s3wrap/ -run 'TestE2E' -v
 
 - 用 [Conventional Commits](https://www.conventionalcommits.org/zh-CN/)：`feat:` / `fix:` / `refactor:` / `test:` / `docs:`。
 - 每个 commit 只做一件事；**重构与功能分开**。
-- 版本：自稳定里程碑 v1.0.0 起用 **`v1.0.0-年月日十分秒`**（`v1.0.0-YYYYMMDDHHmmss`，例如 `v1.0.0-20260901182023`）。改版本号时运行 `./scripts/release-version.sh`（或手动同步 `CHANGELOG.md`、`docs/API.md`、`Makefile`、`package.json`、`Cargo.toml`、`tauri.conf.json`、`docker-compose.yml`、`README.md`）。
+- 版本：稳定里程碑后日常发版用 **`v1.0.0-年月日十分秒`**（`v1.0.0-YYYYMMDDHHmmss`）；预发布可用 **`v1.0.0-rcN`**（例如 `v1.0.0-rc0`）。改版本号时运行 `./scripts/release-version.sh`（或手动同步 `CHANGELOG.md`、`docs/API.md`、`Makefile`、`package.json`、`Cargo.toml`、`tauri.conf.json`、`docker-compose.yml`、`README.md`）。
   - **展示形式**（带 `v` 前缀）：`Makefile` 的 `VERSION`、Docker 镜像 tag、`README.md` / `docs/API.md` / `CHANGELOG.md` 中的版本号、`server/main.go` 的缺省 `version`、`server/Dockerfile` 的 `ARG VERSION`。
-  - **机器形式**（合法 SemVer，去掉 `v` 前缀）：`web/package.json`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/src-tauri/tauri.conf.json` 的 `version` 字段（如 `1.0.0-20260901182023`）。
+  - **机器形式**（合法 SemVer，去掉 `v` 前缀）：`web/package.json`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/src-tauri/tauri.conf.json` 的 `version` 字段（如 `1.0.0-rc0`）。
 - 不提交构建产物（`dist/`、`node_modules/`、`target/`）。
 
 ## Red Flags（遇到即停下修正）

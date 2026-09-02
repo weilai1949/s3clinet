@@ -1,8 +1,12 @@
 # Changelog
 
-遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。v1.0.0 之前采用 [SemVer](https://semver.org/lang/zh-CN/)；**自稳定里程碑 v1.0.0 起版本号使用 `v1.0.0-年月日十分秒`**（格式 `v1.0.0-YYYYMMDDHHmmss`，例如 `v1.0.0-20260901182023`）。
+遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。v1.0.0 之前采用 [SemVer](https://semver.org/lang/zh-CN/)；稳定里程碑后日常发版用 **`v1.0.0-YYYYMMDDHHmmss`**，预发布可用 **`v1.0.0-rcN`**（例如 `v1.0.0-rc0`）。
 
 ## [Unreleased]
+
+## [v1.0.0-rc0] - 2026-09-02
+
+首次候选发布（`develop` 全栈快照）。相对时间戳构建的主要增量：CI（gofmt / golangci-lint v2 / desktop cargo / race）打通；不做服务降级与无历史加密/账号文件格式兼容。
 
 ### 安全与可靠性
 - **不做服务降级 / 无历史格式兼容**：`/api/health` store 失败返回 `503` + `status:error`；`encrypted` 仅 `S3C2`；JSON 账号文件写入 `0600`（加载时不再改旧权限）；移除 `sameEndpoint` 测试 shim 与前端「旧后端无 version」兼容注释。

@@ -4,7 +4,7 @@
 ARG GOPROXY=https://proxy.golang.org,direct
 ARG NPM_REGISTRY=https://registry.npmjs.org
 # 注入到二进制的版本号（main.version）。
-ARG VERSION=v1.0.0-20260901182023
+ARG VERSION=v1.0.0-rc0
 
 ###### Web 前端构建 ######
 FROM node:22-slim AS web

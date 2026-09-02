@@ -7,7 +7,7 @@ services:
         # 国内网络可覆盖：GOPROXY=https://goproxy.io,direct  NPM_REGISTRY=https://registry.npmmirror.com
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
-    image: s3clinet/server:v1.0.0-20260901182023
+    image: s3clinet/server:v1.0.0-rc0
     container_name: s3clinet-server
     restart: unless-stopped
     stop_signal: SIGTERM

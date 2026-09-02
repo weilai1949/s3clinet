@@ -19,7 +19,7 @@ import (
 )
 
 // version 由构建时注入（ldflags -X main.version=...）；缺省与发版号对齐，便于本地 go run/build。
-var version = "v1.0.0-20260901182023"
+var version = "v1.0.0-rc0"
 
 // healthPath 供容器 HEALTHCHECK 使用。
 const healthPath = "/api/health"
