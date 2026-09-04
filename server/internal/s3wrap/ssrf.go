@@ -65,8 +65,12 @@ func isBlockedIP(ip net.IP) bool {
 	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}
-	// 常见云元数据（非链路本地段）
-	for _, s := range []string{"100.100.100.200", "100.96.0.2"} {
+	// 常见云元数据（非链路本地段）：
+	//   100.100.100.200 / 100.96.0.2 —— 阿里云 IMDS 及火山引擎内网元数据
+	//   fd00:ec2::254 —— AWS IMDS IPv6 端点（unique-local，非 link-local）
+	// 只拦精确地址；fd00::/8 整段放行以支持自托管 IPv6 ULA 主场景。
+	blocked := []string{"100.100.100.200", "100.96.0.2", "fd00:ec2::254"}
+	for _, s := range blocked {
 		if ip.Equal(net.ParseIP(s)) {
 			return true
 		}
@@ -91,12 +95,7 @@ func dialContextSSRF(ctx context.Context, network, addr string) (net.Conn, error
 			last = fmt.Errorf("%w: %s", errEndpointBlocked, ipa.IP)
 			continue
 		}
-		var target string
-		if ipa.IP.To4() == nil {
-			target = net.JoinHostPort(ipa.IP.String(), port)
-		} else {
-			target = net.JoinHostPort(ipa.IP.String(), port)
-		}
+		var target = net.JoinHostPort(ipa.IP.String(), port)
 		conn, err := d.DialContext(ctx, network, target)
 		if err == nil {
 			return conn, nil

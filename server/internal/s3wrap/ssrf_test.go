@@ -13,6 +13,13 @@ func TestIsBlockedIP(t *testing.T) {
 		{"169.254.169.254", true},
 		{"169.254.0.1", true},
 		{"100.100.100.200", true},
+		// AWS IMDS IPv6 端点：unique-local，非 link-local，必须精确拦截。
+		{"fd00:ec2::254", true},
+		// 自托管 IPv6 ULA 主场景不受影响（只拦精确地址，不拦整段）。
+		{"fd00::1", false},
+		{"fd12:3456:789a::1", false},
+		{"fe80::1", true},
+		{"::1", false},
 		{"127.0.0.1", false},
 		{"10.0.0.1", false},
 		{"192.168.1.1", false},
