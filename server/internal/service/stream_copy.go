@@ -14,7 +14,8 @@ import (
 // MaxSinglePutBytes 为 S3 PutObject / CopyObject 真实上限。
 const MaxSinglePutBytes int64 = 5_000_000_000
 
-const multipartPartSize = 64 << 20
+// multipartPartSize 分段大小（64MB）；var 以便单测注入小值覆盖多段路径。
+var multipartPartSize int64 = 64 << 20
 
 // StreamCopy 跨客户端复制对象；>5GB 或未知大小走 multipart。
 func StreamCopy(ctx context.Context, src, dst *s3wrap.Client, srcBucket, srcKey, dstBucket, dstKey string) error {

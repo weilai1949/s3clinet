@@ -30,6 +30,14 @@ func main() {
 		os.Exit(runHealthcheck())
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(runServer(ctx))
+}
+
+// runServer 组装并运行服务；返回进程退出码（0 正常、1 启动失败）。
+// 信号/上下文经 ctx 注入，便于测试直接驱动启停。
+func runServer(ctx context.Context) int {
 	cfg := config.FromEnv()
 
 	level := parseLevel(cfg.LogLevel)
@@ -50,14 +58,14 @@ func main() {
 	// 非回环监听必须开启鉴权：否则任何能触达端口的人都能读写全部账号密钥与对象。
 	if cfg.Token == "" && !isLoopbackAddr(cfg.Addr) {
 		logger.Error("拒绝启动：监听非回环地址且未设置 S3C_TOKEN。请设置 S3C_TOKEN（建议 openssl rand -hex 32）或改用 127.0.0.1 监听。")
-		os.Exit(1)
+		return 1
 	}
 
 	// 账号存储（json / sqlite / encrypted）
 	st, err := store.Open(cfg.DataDir, cfg.StoreDriver, cfg.StoreKey)
 	if err != nil {
 		logger.Error("init store", "err", err)
-		os.Exit(1)
+		return 1
 	}
 	defer func() {
 		if err := st.Close(); err != nil {
@@ -77,8 +85,9 @@ func main() {
 		IdleTimeout: 120 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	// 基于 注入 ctx 派生可取消上下文：ListenAndServe 失败时也能进入优雅关闭流程。
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	go func() {
 		logger.Info("s3clinet server",
@@ -93,7 +102,7 @@ func main() {
 		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server error", "err", err)
-			stop()
+			cancel()
 		}
 	}()
 
@@ -108,6 +117,7 @@ func main() {
 	} else {
 		logger.Info("shutdown complete")
 	}
+	return 0
 }
 
 // isLoopbackAddr 判断监听地址是否仅绑定本机回环（127.0.0.1/::1 或未指定 host）。
