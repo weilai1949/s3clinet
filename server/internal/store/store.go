@@ -175,6 +175,9 @@ func (s *Store) persistLocked() error {
 		return err
 	}
 	tmp := s.path + ".tmp"
+	// 崩溃可能留下 tmp 残骸（写后 rename 前进程退出），先清理，
+	// 否则下方 O_EXCL 永久失败。路径固定且由本进程命名，无抢占风险。
+	_ = os.Remove(tmp)
 	// 文件含明文 SecretKey，权限收紧为仅属主可读写；
 	// O_CREATE|O_EXCL 对已存在路径（含符号链接）直接失败，杜绝抢占与链接重定向。
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)

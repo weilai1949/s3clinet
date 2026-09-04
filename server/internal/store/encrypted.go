@@ -226,6 +226,8 @@ func (s *EncryptedStore) persistLocked() error {
 	out = append(out, s.salt...)
 	out = append(out, enc...)
 	tmp := s.path + ".tmp"
+	// 崩溃可能留下 tmp 残骸，先清理避免 O_EXCL 永久失败（路径固定由本进程命名）。
+	_ = os.Remove(tmp)
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
