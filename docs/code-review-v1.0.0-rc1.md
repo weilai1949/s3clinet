@@ -130,3 +130,23 @@ revokeObjectURL；`{} as KeyBindings` cast hack。
 4. CI 一次整改：全部 actions pin SHA + 发布加 SHA256SUMS
 5. i18n 拆分与双上传队列收敛
 6. 贯穿：消除死代码；先补齐单测覆盖率再动刀
+## 9. 整改落地记录（v1.0.0-rc1 评估后）
+
+按第 8 节行动顺序执行完毕，全部提交对应 `go vet/build/test -race` 与 `pnpm test/build` 门禁：
+
+| # | 事项 | 提交 |
+|---|---|---|
+| 1 | s3wrap fake-S3 单元测试补齐（覆盖率 22.4%→61.5%） | `5c2ff52` |
+| 2 | R1 `RunBatch[I]` 泛型池收敛（batch.go）+ 进度竞态修复 | `2cae3f9` |
+| 3 | R2 persistLocked 残留 tmp 清理（O_EXCL 前置 os.Remove） | `abef0fb` |
+| 4 | R3 SSRF 阻断表补 IMDS IPv6 `fd00:ec2::254` | `be8d390` |
+| 5 | CI/桌面/脚本加固（actions SHA 锁定、SHA256SUMS、Tauri 权限收敛、PID 校验、回环端口） | `4e6c0f0` |
+| 6 | R5 Store.List 错误传播（json/encrypted/sqlite） | `4b303a8` |
+| 7 | 前端四项：上传中止即重启（cancelled 终态 + toRaw 键归一化）、面板快捷键误触（panelActive 守卫）、回收站 loadSeq 竞态、SSE 进度 toast 节流 | `0356b8d` |
+| 8 | s3wrap 覆盖率 61.5%→87.0%（object 全生命周期 fake 测试） | `00089e3` |
+| 9 | R4 防腐层：s3wrap 全部返回 DTO，handler/service 零 SDK 类型；presign 零过期守卫（93.4%） | `fc3269c` |
+| 10 | i18n 按域拆分（1352→82 行）+ 双上传队列收敛为共享状态机 | `88e0205` |
+| 11 | 死代码清理：api.ts requestBlob/downloadZip、useObjectBrowser 冗余文件排序；后端扫描无未引用导出 | 本次提交 |
+
+注：第 4 节「GET /api/accounts 返回明文 SecretKey」一项为误报（所有出口均 `Sanitized()`），
+未采纳；见第 4 节原文。

@@ -92,7 +92,7 @@ export function useObjectBrowser(bindings: KeyBindings) {
       object: o,
     }))
     folders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    // files 不在此排序：唯一消费方 visibleEntries 总会按 sortKey 重排文件
     return [...folders, ...files]
   })
 

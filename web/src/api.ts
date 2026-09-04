@@ -241,12 +241,6 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>
 }
 
-/** 二进制响应（如 ZIP 下载）；失败时解析 JSON error。 */
-async function requestBlob(path: string, opts: RequestInit = {}): Promise<Blob> {
-  const res = await requestResponse(path, opts)
-  return res.blob()
-}
-
 /** 原始 Response（流式下载用）；失败时解析 JSON error。 */
 async function requestResponse(path: string, opts: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = { ...((opts.headers as Record<string, string>) ?? {}) }
@@ -496,8 +490,6 @@ export const s3api = {
     request<{ copied: number; failed: number; total: number; lastError?: string }>(`/api/accounts/${id}/copy-prefix`, { method: 'POST', body: JSON.stringify(body) }),
   copyPrefixAsync: (id: string, body: { bucket?: string; prefix: string; targetBucket?: string; targetPrefix: string }) =>
     request<{ jobId: string; total: number; truncated?: boolean }>(`/api/accounts/${id}/copy-prefix/async`, { method: 'POST', body: JSON.stringify(body) }),
-  downloadZip: (id: string, body: { bucket?: string; keys: string[] }) =>
-    requestBlob(`/api/accounts/${id}/download-zip`, { method: 'POST', body: JSON.stringify(body) }),
   /** 流式 ZIP 落盘（优先 File System Access API）。 */
   downloadZipToDisk: (id: string, body: { bucket?: string; keys: string[] }, suggestedName?: string) =>
     downloadZipToDisk(id, body, suggestedName),
