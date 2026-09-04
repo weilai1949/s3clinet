@@ -29,23 +29,21 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request) {
 		maxKeys = 1000
 	}
 
-	out, err := client.ListObjects(r.Context(), bucket, q.Get("prefix"), q.Get("delimiter"), q.Get("continuationToken"), q.Get("startAfter"), int32(maxKeys))
+	page, err := client.ListObjectsPage(r.Context(), bucket, q.Get("prefix"), q.Get("delimiter"), q.Get("continuationToken"), q.Get("startAfter"), int32(maxKeys))
 	if err != nil {
 		h.writeInternalErr(w, err, "list objects failed")
 		return
 	}
 	resp := listObjectsResponse{
-		Objects:        make([]objectItem, 0, len(out.Contents)),
-		CommonPrefixes: make([]string, 0),
-		IsTruncated:    boolOrFalse(out.IsTruncated),
-		NextToken:      derefString(out.NextContinuationToken),
+		Objects:        make([]objectItem, 0, len(page.Objects)),
+		CommonPrefixes: make([]string, 0, len(page.CommonPrefixes)),
+		IsTruncated:    page.IsTruncated,
+		NextToken:      page.NextToken,
 	}
-	for _, o := range out.Contents {
-		resp.Objects = append(resp.Objects, fromS3Object(s3wrap.FromS3Object(o)))
+	for _, o := range page.Objects {
+		resp.Objects = append(resp.Objects, fromS3Object(o))
 	}
-	for _, p := range out.CommonPrefixes {
-		resp.CommonPrefixes = append(resp.CommonPrefixes, derefString(p.Prefix))
-	}
+	resp.CommonPrefixes = append(resp.CommonPrefixes, page.CommonPrefixes...)
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
@@ -166,7 +164,7 @@ func (h *Handler) mkdirObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := strings.TrimRight(req.Key, "/") + "/"
-	if err := client.PutObject(r.Context(), bucket, key, nil, nil); err != nil {
+	if err := client.PutObject(r.Context(), bucket, key, nil, "", nil); err != nil {
 		h.writeInternalErr(w, err, "create folder failed")
 		return
 	}
@@ -364,13 +362,13 @@ func runDeletePrefix(
 			truncated = true
 			break
 		}
-		out, listErr := client.ListObjects(ctx, bucket, prefix, "", token, "", 1000)
+		page, listErr := client.ListObjectsPage(ctx, bucket, prefix, "", token, "", 1000)
 		if listErr != nil {
 			return deleted, truncated, listErr
 		}
-		keys := make([]string, 0, len(out.Contents))
-		for _, o := range out.Contents {
-			keys = append(keys, derefString(o.Key))
+		keys := make([]string, 0, len(page.Objects))
+		for _, o := range page.Objects {
+			keys = append(keys, o.Key)
 		}
 		if len(keys) > 0 {
 			if deleted+len(keys) > maxDelete {
@@ -382,10 +380,10 @@ func runDeletePrefix(
 			}
 			deleted += len(keys)
 		}
-		if truncated || !boolOrFalse(out.IsTruncated) || derefString(out.NextContinuationToken) == "" {
+		if truncated || !page.IsTruncated || page.NextToken == "" {
 			break
 		}
-		token = derefString(out.NextContinuationToken)
+		token = page.NextToken
 	}
 	return deleted, truncated, nil
 }
@@ -444,7 +442,7 @@ func (h *Handler) presign(w http.ResponseWriter, r *http.Request) {
 		}
 		h.writeJSON(w, http.StatusOK, map[string]any{
 			"method": "post", "bucket": bucket, "key": req.Key,
-			"url": post.URL, "fields": post.Values, "expiresIn": int64(expires.Seconds()),
+			"url": post.URL, "fields": post.Fields, "expiresIn": int64(expires.Seconds()),
 		})
 	case "put":
 		u, err := client.PresignPut(r.Context(), bucket, req.Key, expires)

@@ -144,13 +144,13 @@ func (h *Handler) previewBuckets(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, http.StatusBadRequest, "invalid account configuration")
 		return
 	}
-	out, err := client.ListBuckets(r.Context())
+	items, err := client.ListBuckets(r.Context())
 	if err != nil {
 		h.writeInternalErr(w, err, "failed to list buckets")
 		return
 	}
-	buckets := make([]bucketItem, 0, len(out.Buckets))
-	for _, b := range s3wrap.FormatBuckets(out) {
+	buckets := make([]bucketItem, 0, len(items))
+	for _, b := range items {
 		buckets = append(buckets, bucketItem{Name: b.Name, CreationDate: b.CreationDate})
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{"buckets": buckets})

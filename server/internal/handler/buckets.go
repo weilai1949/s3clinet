@@ -12,13 +12,13 @@ func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	out, err := client.ListBuckets(r.Context())
+	items, err := client.ListBuckets(r.Context())
 	if err != nil {
 		h.writeInternalErr(w, err, "bucket operation failed")
 		return
 	}
-	buckets := make([]bucketItem, 0, len(out.Buckets))
-	for _, b := range s3wrap.FormatBuckets(out) {
+	buckets := make([]bucketItem, 0, len(items))
+	for _, b := range items {
 		buckets = append(buckets, bucketItem{Name: b.Name, CreationDate: b.CreationDate})
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{"buckets": buckets})
@@ -106,8 +106,8 @@ func (h *Handler) getBucketInfo(w http.ResponseWriter, r *http.Request) {
 		h.log.Warn("get bucket versioning failed", "bucket", bucket, "err", verr)
 	}
 	created := ""
-	if out, cerr := client.ListBuckets(r.Context()); cerr == nil {
-		for _, b := range s3wrap.FormatBuckets(out) {
+	if items, cerr := client.ListBuckets(r.Context()); cerr == nil {
+		for _, b := range items {
 			if b.Name == bucket {
 				created = b.CreationDate.Format(time.RFC3339)
 				break

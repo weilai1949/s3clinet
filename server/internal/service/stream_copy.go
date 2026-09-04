@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/weilai1949/s3clinet/server/internal/s3wrap"
 )
 
@@ -19,27 +18,19 @@ const multipartPartSize = 64 << 20
 
 // StreamCopy 跨客户端复制对象；>5GB 或未知大小走 multipart。
 func StreamCopy(ctx context.Context, src, dst *s3wrap.Client, srcBucket, srcKey, dstBucket, dstKey string) error {
-	out, err := src.GetObject(ctx, srcBucket, srcKey)
+	stream, err := src.GetObjectStream(ctx, srcBucket, srcKey, "", "")
 	if err != nil {
 		return err
 	}
-	defer out.Body.Close()
-	ct := ""
-	if out.ContentType != nil {
-		ct = *out.ContentType
-	}
+	defer stream.Body.Close()
 	size := int64(-1)
-	if out.ContentLength != nil {
-		size = *out.ContentLength
+	if stream.ContentLength != nil {
+		size = *stream.ContentLength
 	}
 	if size >= 0 && size <= MaxSinglePutBytes {
-		meta := &s3.PutObjectInput{
-			ContentType: out.ContentType,
-			Metadata:    out.Metadata,
-		}
-		return dst.PutObject(ctx, dstBucket, dstKey, out.Body, meta)
+		return dst.PutObject(ctx, dstBucket, dstKey, stream.Body, stream.ContentType, stream.Metadata)
 	}
-	return MultipartStreamCopy(ctx, dst, dstBucket, dstKey, ct, out.Body)
+	return MultipartStreamCopy(ctx, dst, dstBucket, dstKey, stream.ContentType, stream.Body)
 }
 
 // MultipartStreamCopy 将 reader 以 multipart 写入目标。
@@ -81,11 +72,7 @@ func MultipartStreamCopy(ctx context.Context, dst *s3wrap.Client, bucket, key, c
 	}
 	if len(parts) == 0 {
 		abort()
-		var ct *string
-		if contentType != "" {
-			ct = &contentType
-		}
-		return dst.PutObject(ctx, bucket, key, bytes.NewReader(nil), &s3.PutObjectInput{ContentType: ct})
+		return dst.PutObject(ctx, bucket, key, bytes.NewReader(nil), contentType, nil)
 	}
 	if err := dst.CompleteMultipartUpload(ctx, bucket, key, uploadID, parts); err != nil {
 		abort()

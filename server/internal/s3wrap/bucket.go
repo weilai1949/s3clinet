@@ -15,9 +15,13 @@ func (c *Client) HeadBucket(ctx context.Context, bucket string) error {
 	return err
 }
 
-// ListBuckets 列出账号下所有桶。
-func (c *Client) ListBuckets(ctx context.Context) (*s3.ListBucketsOutput, error) {
-	return c.s3.ListBuckets(ctx, &s3.ListBucketsInput{})
+// ListBuckets 列出账号下所有桶（防腐层 DTO）。
+func (c *Client) ListBuckets(ctx context.Context) ([]BucketItem, error) {
+	out, err := c.s3.ListBuckets(ctx, &s3.ListBucketsInput{})
+	if err != nil {
+		return nil, err
+	}
+	return FormatBuckets(out), nil
 }
 
 // CreateBucket 创建桶；region 非 us-east-1 时附带 LocationConstraint（OSS/COS/TOS 需要）。

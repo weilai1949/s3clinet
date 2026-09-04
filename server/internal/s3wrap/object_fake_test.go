@@ -9,9 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // TestListObjectsForwardsParametersAndParsesContents 列表：查询参数透传 + Contents XML 解析 + 截断游标。
@@ -27,7 +24,7 @@ func TestListObjectsForwardsParametersAndParsesContents(t *testing.T) {
 <Contents><Key>docs/b.txt</Key><LastModified>2024-01-02T00:00:00.000Z</LastModified><ETag>&quot;e2&quot;</ETag><Size>0</Size><StorageClass>STANDARD_IA</StorageClass></Contents>
 </ListBucketResult>`))
 	}))
-	out, err := c.ListObjects(context.Background(), "bkt", "docs/", "/", "tok-1", "docs/_start", 10)
+	out, err := c.ListObjectsPage(context.Background(), "bkt", "docs/", "/", "tok-1", "docs/_start", 10)
 	if err != nil {
 		t.Fatalf("ListObjects: %v", err)
 	}
@@ -42,16 +39,16 @@ func TestListObjectsForwardsParametersAndParsesContents(t *testing.T) {
 		q["continuation-token"] != "tok-1" || q["start-after"] != "docs%2F_start" {
 		t.Fatalf("list params = %v", q)
 	}
-	if len(out.Contents) != 2 {
-		t.Fatalf("contents = %d, want 2", len(out.Contents))
+	if len(out.Objects) != 2 {
+		t.Fatalf("contents = %d, want 2", len(out.Objects))
 	}
-	if derefString(out.Contents[0].Key) != "docs/a.txt" || derefInt64(out.Contents[0].Size) != 10 {
-		t.Fatalf("first object = %+v", out.Contents[0])
+	if out.Objects[0].Key != "docs/a.txt" || out.Objects[0].Size != 10 {
+		t.Fatalf("first object = %+v", out.Objects[0])
 	}
-	if string(out.Contents[1].StorageClass) != "STANDARD_IA" {
-		t.Fatalf("storage class = %q", out.Contents[1].StorageClass)
+	if out.Objects[1].StorageClass != "STANDARD_IA" {
+		t.Fatalf("storage class = %q", out.Objects[1].StorageClass)
 	}
-	if !boolOrFalse(out.IsTruncated) || derefString(out.NextContinuationToken) != "tok-2" {
+	if !out.IsTruncated || out.NextToken != "tok-2" {
 		t.Fatal("truncation cursor should be parsed")
 	}
 }
@@ -66,11 +63,11 @@ func TestListObjectsMinimalCallAndEmptyResult(t *testing.T) {
 		w.Header().Set("Content-Type", "application/xml")
 		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult ` + xmlNS + `><Name>bkt</Name><KeyCount>0</KeyCount><MaxKeys>1000</MaxKeys><IsTruncated>false</IsTruncated></ListBucketResult>`))
 	}))
-	out, err := c.ListObjects(context.Background(), "bkt", "", "", "", "", 0)
+	out, err := c.ListObjectsPage(context.Background(), "bkt", "", "", "", "", 0)
 	if err != nil {
 		t.Fatalf("ListObjects: %v", err)
 	}
-	if len(out.Contents) != 0 || boolOrFalse(out.IsTruncated) {
+	if len(out.Objects) != 0 || out.IsTruncated {
 		t.Fatalf("empty result = %+v", out)
 	}
 }
@@ -219,7 +216,7 @@ func TestGetObjectVariantsAndErrors(t *testing.T) {
 	}))
 	ctx := context.Background()
 
-	out, err := c.GetObject(ctx, "bkt", "hello.txt")
+	out, err := c.GetObjectStream(ctx, "bkt", "hello.txt", "", "")
 	if err != nil {
 		t.Fatalf("GetObject: %v", err)
 	}
@@ -232,21 +229,21 @@ func TestGetObjectVariantsAndErrors(t *testing.T) {
 		t.Fatalf("plain Get should not send range/version, got %q/%q", gotRange, gotVersionID)
 	}
 
-	if _, err := c.GetObjectRange(ctx, "bkt", "hello.txt", "bytes=0-4"); err != nil {
+	if _, err := c.GetObjectStream(ctx, "bkt", "hello.txt", "", "bytes=0-4"); err != nil {
 		t.Fatalf("GetObjectRange: %v", err)
 	}
 	if gotRange != "bytes=0-4" {
 		t.Fatalf("Range header = %q", gotRange)
 	}
 
-	if _, err := c.GetObjectVersion(ctx, "bkt", "hello.txt", "vid-9", ""); err != nil {
+	if _, err := c.GetObjectStream(ctx, "bkt", "hello.txt", "vid-9", ""); err != nil {
 		t.Fatalf("GetObjectVersion: %v", err)
 	}
 	if gotVersionID != "vid-9" {
 		t.Fatalf("versionId param = %q", gotVersionID)
 	}
 
-	if _, err := c.GetObject(ctx, "bkt", "gone"); err == nil {
+	if _, err := c.GetObjectStream(ctx, "bkt", "gone", "", ""); err == nil {
 		t.Fatal("expected NoSuchKey error")
 	} else if !IsNotFound(err) || HTTPStatus(err) != 404 {
 		t.Fatalf("expected NotFound-shaped 404 error, got %v", err)
@@ -321,23 +318,20 @@ func TestPutObjectSendsBodyAndMetadata(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	ctx := context.Background()
-	if err := c.PutObject(ctx, "bkt", "a/b.txt", strings.NewReader("payload"), &s3.PutObjectInput{
-		ContentType: aws.String("text/csv"),
-		Metadata:    map[string]string{"color": "red"},
-	}); err != nil {
+	if err := c.PutObject(ctx, "bkt", "a/b.txt", strings.NewReader("payload"), "text/csv", map[string]string{"color": "red"}); err != nil {
 		t.Fatalf("PutObject: %v", err)
 	}
 	if gotBody != "payload" || gotType != "text/csv" || gotMeta != "red" {
 		t.Fatalf("body=%q type=%q meta=%q", gotBody, gotType, gotMeta)
 	}
 	gotBody, gotType, gotMeta = "", "", ""
-	if err := c.PutObject(ctx, "bkt", "plain.txt", strings.NewReader("p2"), nil); err != nil {
-		t.Fatalf("PutObject(nil meta): %v", err)
+	if err := c.PutObject(ctx, "bkt", "plain.txt", strings.NewReader("p2"), "", nil); err != nil {
+		t.Fatalf("PutObject(no meta): %v", err)
 	}
 	if gotBody != "p2" || gotMeta != "" {
 		t.Fatalf("nil meta: body=%q meta=%q (SDK 会给请求补默认 Content-Type，不在此断言)", gotBody, gotMeta)
 	}
-	if err := c.PutObject(ctx, "bkt", "deny", strings.NewReader("x"), nil); err == nil {
+	if err := c.PutObject(ctx, "bkt", "deny", strings.NewReader("x"), "", nil); err == nil {
 		t.Fatal("expected error when fake rejects upload")
 	}
 }
@@ -361,11 +355,10 @@ func TestObjectACLRoundTrip(t *testing.T) {
 		}
 	}))
 	ctx := context.Background()
-	out, err := c.GetObjectAcl(ctx, "bkt", "k")
+	owner, public, rows, err := c.GetObjectAcl(ctx, "bkt", "k")
 	if err != nil {
 		t.Fatalf("GetObjectAcl: %v", err)
 	}
-	owner, public, rows := DescribeACL(out)
 	if owner != "alice" {
 		t.Fatalf("owner = %q", owner)
 	}
@@ -429,8 +422,8 @@ func TestObjectTagsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetObjectTags: %v", err)
 	}
-	if len(tags.TagSet) != 1 || derefString(tags.TagSet[0].Key) != "env" {
-		t.Fatalf("tags = %+v", tags.TagSet)
+	if len(tags.Tags) != 1 || tags.Tags[0].Key != "env" {
+		t.Fatalf("tags = %+v", tags.Tags)
 	}
 	if _, err := c.GetObjectTags(ctx, "bkt", "notags"); err == nil {
 		t.Fatal("expected NoSuchTagSet error")
@@ -464,13 +457,13 @@ func TestListObjectVersionsParsesMarkers(t *testing.T) {
 	if len(out.Versions) != 2 || len(out.DeleteMarkers) != 1 {
 		t.Fatalf("versions=%d markers=%d", len(out.Versions), len(out.DeleteMarkers))
 	}
-	if derefString(out.Versions[0].VersionId) != "vid1" || !boolPtr(out.Versions[0].IsLatest) {
+	if out.Versions[0].VersionID != "vid1" || !out.Versions[0].IsLatest {
 		t.Fatalf("latest version = %+v", out.Versions[0])
 	}
-	if derefString(out.DeleteMarkers[0].VersionId) != "dm1" {
+	if out.DeleteMarkers[0].VersionID != "dm1" {
 		t.Fatalf("delete marker = %+v", out.DeleteMarkers[0])
 	}
-	if !boolOrFalse(out.IsTruncated) || derefString(out.NextKeyMarker) != "t.txt" || derefString(out.NextVersionIdMarker) != "vid-next" {
+	if !out.IsTruncated || out.NextKeyMarker != "t.txt" || out.NextVersionIDMarker != "vid-next" {
 		t.Fatal("truncation cursor should be parsed")
 	}
 	q := rquery(gotRawQuery)
@@ -703,7 +696,7 @@ func TestGetObjectWithEmptyOptionalParams(t *testing.T) {
 		gotVersionParam, gotRange = r.URL.Query().Get("versionId"), r.Header.Get("Range")
 		_, _ = w.Write([]byte("ok"))
 	}))
-	if _, err := c.GetObjectVersion(context.Background(), "bkt", "k", "", ""); err != nil {
+	if _, err := c.GetObjectStream(context.Background(), "bkt", "k", "", ""); err != nil {
 		t.Fatalf("GetObjectVersion(empty): %v", err)
 	}
 	if gotVersionParam != "" || gotRange != "" {

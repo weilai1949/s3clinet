@@ -242,12 +242,12 @@ func (h *Handler) listPrefixKeys(ctx context.Context, client *s3wrap.Client, buc
 	truncated := false
 	token := ""
 	for {
-		out, err := client.ListObjects(ctx, bucket, prefix, "", token, "", 1000)
+		page, err := client.ListObjectsPage(ctx, bucket, prefix, "", token, "", 1000)
 		if err != nil {
 			return nil, false, err
 		}
-		for _, o := range out.Contents {
-			keys = append(keys, derefString(o.Key))
+		for _, o := range page.Objects {
+			keys = append(keys, o.Key)
 			if len(keys) >= maxCopy {
 				truncated = true
 				break
@@ -256,10 +256,10 @@ func (h *Handler) listPrefixKeys(ctx context.Context, client *s3wrap.Client, buc
 		if truncated {
 			break
 		}
-		if !boolOrFalse(out.IsTruncated) || derefString(out.NextContinuationToken) == "" {
+		if !page.IsTruncated || page.NextToken == "" {
 			break
 		}
-		token = derefString(out.NextContinuationToken)
+		token = page.NextToken
 	}
 	return keys, truncated, nil
 }

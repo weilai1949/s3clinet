@@ -65,7 +65,7 @@ func TestE2ERustFS(t *testing.T) {
 
 	// 2) PutObject / GetObject / HeadObject
 	txt := "hello s3clinet e2e"
-	if err := c.PutObject(ctx, bucket, "hello.txt", strings.NewReader(txt), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "hello.txt", strings.NewReader(txt), "", nil); err != nil {
 		t.Fatalf("put object: %v", err)
 	}
 	if got := getObjectString(t, ctx, c, bucket, "hello.txt"); got != txt {
@@ -132,7 +132,7 @@ func TestE2ERustFS(t *testing.T) {
 
 	// 6) 对象标签（写后读、空对象无标签）：兼容「200+空 TagSet」与「NoSuchTagSet 错误」两种实现；
 	//    其他任何错误都视为失败（此前该探针恒真、从不断言）。
-	if err := c.PutObject(ctx, bucket, "notagged.txt", strings.NewReader("x"), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "notagged.txt", strings.NewReader("x"), "", nil); err != nil {
 		t.Fatalf("put notagged.txt: %v", err)
 	}
 	if _, er := c.GetObjectTags(ctx, bucket, "notagged.txt"); er != nil && !isNoSuchTagSet(er) && !isNotImplemented(er) {
@@ -145,16 +145,16 @@ func TestE2ERustFS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get tags: %v", err)
 	}
-	if len(tags.TagSet) != 2 {
-		t.Fatalf("tags len = %d, want 2", len(tags.TagSet))
+	if len(tags.Tags) != 2 {
+		t.Fatalf("tags len = %d, want 2", len(tags.Tags))
 	}
 
 	// 7) ACL（部分端点实现为空操作，仅要求接口可调用、读回非空 Owner；失败软性告警）
 	if err := c.PutObjectAcl(ctx, bucket, "hello.txt", "public-read"); err != nil && !isNotImplemented(err) {
 		t.Logf("note: PutObjectAcl err=%v (endpoint may not enforce ACL)", err)
 	}
-	if acl, er := c.GetObjectAcl(ctx, bucket, "hello.txt"); er == nil && (acl.Owner == nil || derefString(acl.Owner.ID) == "") {
-		t.Logf("note: GetObjectAcl owner empty")
+	if _, _, rows, er := c.GetObjectAcl(ctx, bucket, "hello.txt"); er == nil && len(rows) == 0 {
+		t.Logf("note: GetObjectAcl grants empty")
 	} else if er != nil && !isNotImplemented(er) {
 		t.Logf("note: GetObjectAcl err=%v", er)
 	}
@@ -166,10 +166,10 @@ func TestE2ERustFS(t *testing.T) {
 	if v, err := c.GetBucketVersioning(ctx, bucket); err != nil || v != "Enabled" {
 		t.Fatalf("get bucket versioning = %q err=%v, want Enabled", v, err)
 	}
-	if err := c.PutObject(ctx, bucket, "v.txt", strings.NewReader("v1"), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "v.txt", strings.NewReader("v1"), "", nil); err != nil {
 		t.Fatalf("put v1: %v", err)
 	}
-	if err := c.PutObject(ctx, bucket, "v.txt", strings.NewReader("v2"), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "v.txt", strings.NewReader("v2"), "", nil); err != nil {
 		t.Fatalf("put v2: %v", err)
 	}
 	vers, err := c.ListObjectVersions(ctx, bucket, "v.txt", "", "", 1000)
@@ -181,7 +181,7 @@ func TestE2ERustFS(t *testing.T) {
 	}
 	latest := 0
 	for _, v := range vers.Versions {
-		if boolPtr(v.IsLatest) {
+		if v.IsLatest {
 			latest++
 		}
 	}
@@ -192,8 +192,8 @@ func TestE2ERustFS(t *testing.T) {
 	// 9) 版本恢复 / 删除指定版本
 	var oldestID string
 	for _, v := range vers.Versions {
-		if !boolPtr(v.IsLatest) {
-			oldestID = derefString(v.VersionId)
+		if !v.IsLatest {
+			oldestID = v.VersionID
 			break
 		}
 	}
@@ -234,10 +234,10 @@ func TestE2EBatch1(t *testing.T) {
 	}
 
 	// 1) 版本控制下写两个版本
-	if err := c.PutObject(ctx, bucket, "dm.txt", strings.NewReader("dm1"), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "dm.txt", strings.NewReader("dm1"), "", nil); err != nil {
 		t.Fatalf("put dm1: %v", err)
 	}
-	if err := c.PutObject(ctx, bucket, "dm.txt", strings.NewReader("dm2"), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "dm.txt", strings.NewReader("dm2"), "", nil); err != nil {
 		t.Fatalf("put dm2: %v", err)
 	}
 	vers, err := c.ListObjectVersions(ctx, bucket, "dm.txt", "", "", 1000)
@@ -246,8 +246,8 @@ func TestE2EBatch1(t *testing.T) {
 	}
 	var dmOldest string
 	for _, v := range vers.Versions {
-		if derefString(v.Key) == "dm.txt" && !boolPtr(v.IsLatest) {
-			dmOldest = derefString(v.VersionId)
+		if v.Key == "dm.txt" && !v.IsLatest {
+			dmOldest = v.VersionID
 			break
 		}
 	}
@@ -259,7 +259,7 @@ func TestE2EBatch1(t *testing.T) {
 	if err := c.DeleteObject(ctx, bucket, "dm.txt"); err != nil {
 		t.Fatalf("delete dm.txt: %v", err)
 	}
-	if _, err := c.GetObject(ctx, bucket, "dm.txt"); err == nil {
+	if _, err := c.GetObjectStream(ctx, bucket, "dm.txt", "", ""); err == nil {
 		t.Fatalf("expected dm.txt unreadable after delete marker")
 	}
 	vers2, err := c.ListObjectVersions(ctx, bucket, "dm.txt", "", "", 1000)
@@ -268,8 +268,8 @@ func TestE2EBatch1(t *testing.T) {
 	}
 	dmMarkerID := ""
 	for _, d := range vers2.DeleteMarkers {
-		if derefString(d.Key) == "dm.txt" {
-			dmMarkerID = derefString(d.VersionId)
+		if d.Key == "dm.txt" {
+			dmMarkerID = d.VersionID
 		}
 	}
 	if dmMarkerID == "" {
@@ -411,10 +411,10 @@ func TestE2ETrash(t *testing.T) {
 		t.Fatalf("enable versioning: %v", err)
 	}
 
-	if err := c.PutObject(ctx, bucket, "t.txt", strings.NewReader("v1"), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "t.txt", strings.NewReader("v1"), "", nil); err != nil {
 		t.Fatalf("put v1: %v", err)
 	}
-	if err := c.PutObject(ctx, bucket, "t.txt", strings.NewReader("v2"), &s3.PutObjectInput{}); err != nil {
+	if err := c.PutObject(ctx, bucket, "t.txt", strings.NewReader("v2"), "", nil); err != nil {
 		t.Fatalf("put v2: %v", err)
 	}
 	if err := c.DeleteObject(ctx, bucket, "t.txt"); err != nil {
@@ -437,7 +437,7 @@ func TestE2ETrash(t *testing.T) {
 		t.Fatalf("purge deleted %d, want 3", n)
 	}
 	// 对象不可读，且无任何版本/标记残留
-	if _, err := c.GetObject(ctx, bucket, "t.txt"); err == nil {
+	if _, err := c.GetObjectStream(ctx, bucket, "t.txt", "", ""); err == nil {
 		t.Fatalf("t.txt still readable after purge")
 	}
 	after, err := c.ListObjectVersions(ctx, bucket, "t.txt", "", "", 1000)
@@ -446,12 +446,12 @@ func TestE2ETrash(t *testing.T) {
 	}
 	found := false
 	for _, v := range after.Versions {
-		if derefString(v.Key) == "t.txt" {
+		if v.Key == "t.txt" {
 			found = true
 		}
 	}
 	for _, d := range after.DeleteMarkers {
-		if derefString(d.Key) == "t.txt" {
+		if d.Key == "t.txt" {
 			found = true
 		}
 	}
@@ -464,7 +464,7 @@ func TestE2ETrash(t *testing.T) {
 
 func getObjectString(t *testing.T, ctx context.Context, c *Client, bucket, key string) string {
 	t.Helper()
-	out, err := c.GetObject(ctx, bucket, key)
+	out, err := c.GetObjectStream(ctx, bucket, key, "", "")
 	if err != nil {
 		t.Fatalf("get %s: %v", key, err)
 	}
@@ -478,7 +478,7 @@ func getObjectString(t *testing.T, ctx context.Context, c *Client, bucket, key s
 
 func getObjectBytes(t *testing.T, ctx context.Context, c *Client, bucket, key string) []byte {
 	t.Helper()
-	out, err := c.GetObject(ctx, bucket, key)
+	out, err := c.GetObjectStream(ctx, bucket, key, "", "")
 	if err != nil {
 		t.Fatalf("get %s: %v", key, err)
 	}
@@ -534,11 +534,11 @@ func cleanupBucket(ctx context.Context, c *Client, bucket string) error {
 		if err != nil {
 			return err
 		}
-		if len(out.Versions) == 0 && len(out.DeleteMarkers) == 0 && len(out.CommonPrefixes) == 0 {
+		if len(out.Versions) == 0 && len(out.DeleteMarkers) == 0 {
 			break
 		}
 		for _, v := range out.Versions {
-			key, vid := derefString(v.Key), derefString(v.VersionId)
+			key, vid := v.Key, v.VersionID
 			if key == "" {
 				continue
 			}
@@ -549,7 +549,7 @@ func cleanupBucket(ctx context.Context, c *Client, bucket string) error {
 			_, _ = c.S3().DeleteObject(ctx, in)
 		}
 		for _, d := range out.DeleteMarkers {
-			key, vid := derefString(d.Key), derefString(d.VersionId)
+			key, vid := d.Key, d.VersionID
 			if key == "" {
 				continue
 			}
@@ -561,12 +561,11 @@ func cleanupBucket(ctx context.Context, c *Client, bucket string) error {
 		}
 	}
 	// 删除当前对象（版本控制下也许有遗漏，再清一遍普通对象）
-	out, err := c.ListObjects(ctx, bucket, "", "", "", "", 1000)
+	page, err := c.ListObjectsPage(ctx, bucket, "", "", "", "", 1000)
 	if err == nil {
-		for _, o := range out.Contents {
-			key := derefString(o.Key)
-			if key != "" {
-				_, _ = c.S3().DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &bucket, Key: &key})
+		for _, o := range page.Objects {
+			if o.Key != "" {
+				_, _ = c.S3().DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &bucket, Key: &o.Key})
 			}
 		}
 	}
@@ -579,8 +578,6 @@ func getenv(k, def string) string {
 	}
 	return def
 }
-
-func boolPtr(b *bool) bool { return b != nil && *b }
 
 func isNoSuchTagSet(err error) bool {
 	var ae smithy.APIError

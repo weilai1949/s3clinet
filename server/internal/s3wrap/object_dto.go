@@ -50,7 +50,7 @@ func objectStreamFrom(out *s3.GetObjectOutput) *ObjectStream {
 
 // HeadObjectMeta 获取对象元数据 DTO。
 func (c *Client) HeadObjectMeta(ctx context.Context, bucket, key, versionID string) (*ObjectMeta, error) {
-	out, err := c.HeadObject(ctx, bucket, key, versionID)
+	out, err := c.headObject(ctx, bucket, key, versionID)
 	if err != nil {
 		return nil, err
 	}

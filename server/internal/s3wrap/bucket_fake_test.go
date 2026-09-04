@@ -26,14 +26,14 @@ func TestListBucketsParsesXML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListBuckets: %v", err)
 	}
-	if len(out.Buckets) != 2 {
-		t.Fatalf("buckets = %d, want 2", len(out.Buckets))
+	if len(out) != 2 {
+		t.Fatalf("buckets = %d, want 2", len(out))
 	}
-	if derefString(out.Buckets[0].Name) != "alpha" || derefString(out.Buckets[1].Name) != "beta" {
-		t.Fatalf("bucket names = %v/%v", derefString(out.Buckets[0].Name), derefString(out.Buckets[1].Name))
+	if out[0].Name != "alpha" || out[1].Name != "beta" {
+		t.Fatalf("bucket names = %v/%v", out[0].Name, out[1].Name)
 	}
-	if want := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC); out.Buckets[0].CreationDate == nil || !out.Buckets[0].CreationDate.Equal(want) {
-		t.Fatalf("creation date = %v, want %v", out.Buckets[0].CreationDate, want)
+	if want := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC); !out[0].CreationDate.Equal(want) {
+		t.Fatalf("creation date = %v, want %v", out[0].CreationDate, want)
 	}
 }
 

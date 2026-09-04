@@ -10,8 +10,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// ListObjects 使用 ListObjectsV2 分页列出对象。
-func (c *Client) ListObjects(ctx context.Context, bucket, prefix, delimiter, continuationToken, startAfter string, maxKeys int32) (*s3.ListObjectsV2Output, error) {
+// ListObjectsPage 使用 ListObjectsV2 分页列出对象（防腐层 DTO）。
+func (c *Client) ListObjectsPage(ctx context.Context, bucket, prefix, delimiter, continuationToken, startAfter string, maxKeys int32) (*ListPage, error) {
+	out, err := c.listObjectsV2(ctx, bucket, prefix, delimiter, continuationToken, startAfter, maxKeys)
+	if err != nil {
+		return nil, err
+	}
+	return listPageFrom(out), nil
+}
+
+func (c *Client) listObjectsV2(ctx context.Context, bucket, prefix, delimiter, continuationToken, startAfter string, maxKeys int32) (*s3.ListObjectsV2Output, error) {
 	in := &s3.ListObjectsV2Input{
 		Bucket:            aws.String(bucket),
 		Prefix:            aws.String(prefix),
@@ -87,21 +95,6 @@ func (c *Client) CopyObjectWithMeta(ctx context.Context, srcBucket, srcKey, dstB
 	return err
 }
 
-// GetObject 读取对象内容流，用于跨 endpoint 迁移。
-func (c *Client) GetObject(ctx context.Context, bucket, key string) (*s3.GetObjectOutput, error) {
-	return c.getObjectIn(ctx, bucket, key, "", "")
-}
-
-// GetObjectRange 读取对象指定字节范围。
-func (c *Client) GetObjectRange(ctx context.Context, bucket, key, rangeHeader string) (*s3.GetObjectOutput, error) {
-	return c.getObjectIn(ctx, bucket, key, "", rangeHeader)
-}
-
-// GetObjectVersion 读取对象指定版本。
-func (c *Client) GetObjectVersion(ctx context.Context, bucket, key, versionID, rangeHeader string) (*s3.GetObjectOutput, error) {
-	return c.getObjectIn(ctx, bucket, key, versionID, rangeHeader)
-}
-
 func (c *Client) getObjectIn(ctx context.Context, bucket, key, versionID, rangeHeader string) (*s3.GetObjectOutput, error) {
 	in := &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
@@ -116,8 +109,8 @@ func (c *Client) getObjectIn(ctx context.Context, bucket, key, versionID, rangeH
 	return c.s3.GetObject(ctx, in)
 }
 
-// HeadObject 获取对象元数据。
-func (c *Client) HeadObject(ctx context.Context, bucket, key, versionID string) (*s3.HeadObjectOutput, error) {
+// headObject 获取对象元数据（仅包内使用；对外走 HeadObjectMeta DTO）。
+func (c *Client) headObject(ctx context.Context, bucket, key, versionID string) (*s3.HeadObjectOutput, error) {
 	in := &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -128,31 +121,34 @@ func (c *Client) HeadObject(ctx context.Context, bucket, key, versionID string) 
 	return c.s3.HeadObject(ctx, in)
 }
 
-// PutObject 上传对象内容，用于跨 endpoint 迁移。
-func (c *Client) PutObject(ctx context.Context, bucket, key string, body io.Reader, meta *s3.PutObjectInput) error {
+// PutObject 上传对象内容（ContentType/Metadata 用纯值传递，防腐层不暴露 SDK 输入类型）。
+func (c *Client) PutObject(ctx context.Context, bucket, key string, body io.Reader, contentType string, metadata map[string]string) error {
 	in := &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 		Body:   body,
 	}
-	if meta != nil {
-		if meta.ContentType != nil {
-			in.ContentType = meta.ContentType
-		}
-		if meta.Metadata != nil {
-			in.Metadata = meta.Metadata
-		}
+	if contentType != "" {
+		in.ContentType = aws.String(contentType)
+	}
+	if len(metadata) > 0 {
+		in.Metadata = metadata
 	}
 	_, err := c.s3.PutObject(ctx, in)
 	return err
 }
 
-// GetObjectAcl 读取对象 ACL。
-func (c *Client) GetObjectAcl(ctx context.Context, bucket, key string) (*s3.GetObjectAclOutput, error) {
-	return c.s3.GetObjectAcl(ctx, &s3.GetObjectAclInput{
+// GetObjectAcl 读取对象 ACL，返回展示型 DTO（owner/是否公开/授权行）。
+func (c *Client) GetObjectAcl(ctx context.Context, bucket, key string) (owner string, public bool, rows []GrantRow, err error) {
+	out, err := c.s3.GetObjectAcl(ctx, &s3.GetObjectAclInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
+	if err != nil {
+		return "", false, nil, err
+	}
+	owner, public, rows = DescribeACL(out)
+	return owner, public, rows, nil
 }
 
 // PutObjectAcl 设置对象 canned ACL。
@@ -181,12 +177,16 @@ func toObjectCannedACL(acl string) types.ObjectCannedACL {
 	}
 }
 
-// GetObjectTags 读取对象标签。
-func (c *Client) GetObjectTags(ctx context.Context, bucket, key string) (*s3.GetObjectTaggingOutput, error) {
-	return c.s3.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+// GetObjectTags 读取对象标签（防腐层 DTO）。
+func (c *Client) GetObjectTags(ctx context.Context, bucket, key string) (*TaggingSet, error) {
+	out, err := c.s3.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
+	if err != nil {
+		return nil, err
+	}
+	return taggingSetFrom(out), nil
 }
 
 // PutObjectTags 覆盖写入对象标签。
@@ -212,8 +212,16 @@ func (c *Client) DeleteObjectTags(ctx context.Context, bucket, key string) error
 	return err
 }
 
-// ListObjectVersions 列出对象各版本（含删除标记）与分页游标。
-func (c *Client) ListObjectVersions(ctx context.Context, bucket, prefix, keyMarker, versionIDMarker string, maxKeys int32) (*s3.ListObjectVersionsOutput, error) {
+// ListObjectVersions 列出对象各版本（含删除标记）与分页游标（防腐层 DTO）。
+func (c *Client) ListObjectVersions(ctx context.Context, bucket, prefix, keyMarker, versionIDMarker string, maxKeys int32) (*VersionsPage, error) {
+	out, err := c.listObjectVersionsIn(ctx, bucket, prefix, keyMarker, versionIDMarker, maxKeys)
+	if err != nil {
+		return nil, err
+	}
+	return versionsPageFrom(out), nil
+}
+
+func (c *Client) listObjectVersionsIn(ctx context.Context, bucket, prefix, keyMarker, versionIDMarker string, maxKeys int32) (*s3.ListObjectVersionsOutput, error) {
 	in := &s3.ListObjectVersionsInput{
 		Bucket:  aws.String(bucket),
 		MaxKeys: aws.Int32(maxKeys),
@@ -274,13 +282,13 @@ func (c *Client) PurgeObject(ctx context.Context, bucket, key string) (int, erro
 		}
 		ids := make([]types.ObjectIdentifier, 0, 1000)
 		for _, v := range out.Versions {
-			if derefString(v.Key) == key && derefString(v.VersionId) != "" {
-				ids = append(ids, types.ObjectIdentifier{Key: aws.String(key), VersionId: aws.String(derefString(v.VersionId))})
+			if v.Key == key && v.VersionID != "" {
+				ids = append(ids, types.ObjectIdentifier{Key: aws.String(key), VersionId: aws.String(v.VersionID)})
 			}
 		}
 		for _, d := range out.DeleteMarkers {
-			if derefString(d.Key) == key && derefString(d.VersionId) != "" {
-				ids = append(ids, types.ObjectIdentifier{Key: aws.String(key), VersionId: aws.String(derefString(d.VersionId))})
+			if d.Key == key && d.VersionID != "" {
+				ids = append(ids, types.ObjectIdentifier{Key: aws.String(key), VersionId: aws.String(d.VersionID)})
 			}
 		}
 		if len(ids) > 0 {
@@ -299,11 +307,11 @@ func (c *Client) PurgeObject(ctx context.Context, bucket, key string) (int, erro
 				deleted += end - i
 			}
 		}
-		if !boolOrFalse(out.IsTruncated) || derefString(out.NextKeyMarker) == "" {
+		if !out.IsTruncated || out.NextKeyMarker == "" {
 			break
 		}
-		keyMarker = derefString(out.NextKeyMarker)
-		versionIDMarker = derefString(out.NextVersionIdMarker)
+		keyMarker = out.NextKeyMarker
+		versionIDMarker = out.NextVersionIDMarker
 		if keyMarker == "" && versionIDMarker == "" {
 			break
 		}

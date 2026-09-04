@@ -26,25 +26,25 @@ func (h *Handler) listTrash(w http.ResponseWriter, r *http.Request) {
 			maxKeys = int32(n)
 		}
 	}
-	out, err := client.ListObjectVersions(r.Context(), bucket, q.Get("prefix"), q.Get("keyMarker"), q.Get("versionIdMarker"), maxKeys)
+	page, err := client.ListObjectVersions(r.Context(), bucket, q.Get("prefix"), q.Get("keyMarker"), q.Get("versionIdMarker"), maxKeys)
 	if err != nil {
 		h.writeInternalErr(w, err, "trash operation failed")
 		return
 	}
 	deleteMarkers := []map[string]any{}
-	for _, d := range out.DeleteMarkers {
+	for _, d := range page.DeleteMarkers {
 		deleteMarkers = append(deleteMarkers, map[string]any{
-			"key":          derefString(d.Key),
-			"versionId":    derefString(d.VersionId),
-			"isLatest":     boolOrFalse(d.IsLatest),
-			"lastModified": timeOrZero(d.LastModified).Format(time.RFC3339),
+			"key":          d.Key,
+			"versionId":    d.VersionID,
+			"isLatest":     d.IsLatest,
+			"lastModified": d.LastModified.Format(time.RFC3339),
 		})
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{
 		"deleteMarkers":       deleteMarkers,
-		"isTruncated":         boolOrFalse(out.IsTruncated),
-		"nextKeyMarker":       derefString(out.NextKeyMarker),
-		"nextVersionIdMarker": derefString(out.NextVersionIdMarker),
+		"isTruncated":         page.IsTruncated,
+		"nextKeyMarker":       page.NextKeyMarker,
+		"nextVersionIdMarker": page.NextVersionIDMarker,
 	})
 }
 

@@ -1,6 +1,8 @@
 package s3wrap
 
 import (
+	"errors"
+
 	"context"
 	"fmt"
 	"net/url"
@@ -12,7 +14,13 @@ import (
 )
 
 // PresignPut 生成 v4 签名的上传 URL（单文件 PUT，≤5GB）。
+// errInvalidExpiry 预签名过期时长必须为正。
+var errInvalidExpiry = errors.New("presign: expiry must be positive")
+
 func (c *Client) PresignPut(ctx context.Context, bucket, key string, expires time.Duration) (string, error) {
+	if expires <= 0 {
+		return "", errInvalidExpiry
+	}
 	res, err := c.presign.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -24,7 +32,10 @@ func (c *Client) PresignPut(ctx context.Context, bucket, key string, expires tim
 }
 
 // PresignPost 生成 v4 签名的 POST 表单（multipart/form-data），用于浏览器大文件/表单直传。
-func (c *Client) PresignPost(ctx context.Context, bucket, key string, expires time.Duration) (*s3.PresignedPostRequest, error) {
+func (c *Client) PresignPost(ctx context.Context, bucket, key string, expires time.Duration) (*PresignPostResult, error) {
+	if expires <= 0 {
+		return nil, errInvalidExpiry
+	}
 	res, err := c.presign.PresignPostObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -32,11 +43,18 @@ func (c *Client) PresignPost(ctx context.Context, bucket, key string, expires ti
 	if err != nil {
 		return nil, err
 	}
-	return res, nil
+	fields := make(map[string]string, len(res.Values))
+	for k, v := range res.Values {
+		fields[k] = v
+	}
+	return &PresignPostResult{URL: res.URL, Fields: fields}, nil
 }
 
 // PresignGetVersion 生成 v4 签名的、指向指定版本（versionId；空=当前）的下载 URL。
 func (c *Client) PresignGetVersion(ctx context.Context, bucket, key, versionID string, expires time.Duration) (string, error) {
+	if expires <= 0 {
+		return "", errInvalidExpiry
+	}
 	in := &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -53,6 +71,9 @@ func (c *Client) PresignGetVersion(ctx context.Context, bucket, key, versionID s
 
 // PresignUploadPart 预签名单个分段的 PUT URL（浏览器直传每段，无需经过本服务）。
 func (c *Client) PresignUploadPart(ctx context.Context, bucket, key, uploadID string, partNumber int32, expires time.Duration) (string, error) {
+	if expires <= 0 {
+		return "", errInvalidExpiry
+	}
 	res, err := c.presign.PresignUploadPart(ctx, &s3.UploadPartInput{
 		Bucket:     aws.String(bucket),
 		Key:        aws.String(key),

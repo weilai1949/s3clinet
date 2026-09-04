@@ -30,12 +30,11 @@ func (h *Handler) getObjectAcl(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, http.StatusBadRequest, "key is required")
 		return
 	}
-	out, err := client.GetObjectAcl(r.Context(), bucket, key)
+	owner, public, rows, err := client.GetObjectAcl(r.Context(), bucket, key)
 	if err != nil {
 		h.writeInternalErr(w, err, "metadata operation failed")
 		return
 	}
-	owner, public, rows := s3wrap.DescribeACL(out)
 	grants := []aclGrant{}
 	for _, r := range rows {
 		grants = append(grants, aclGrant{Grantee: r.Grantee, Permission: r.Permission})
@@ -101,7 +100,7 @@ func (h *Handler) getObjectTags(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, http.StatusBadRequest, "key is required")
 		return
 	}
-	out, err := client.GetObjectTags(r.Context(), bucket, key)
+	set, err := client.GetObjectTags(r.Context(), bucket, key)
 	if err != nil {
 		if s3wrap.HasErrorCode(err, "NoSuchTagSet", "NoSuchTagSetError", "NotFound") {
 			h.writeJSON(w, http.StatusOK, map[string]any{"tags": []any{}})
@@ -111,8 +110,8 @@ func (h *Handler) getObjectTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tags := []map[string]string{}
-	for _, t := range out.TagSet {
-		tags = append(tags, map[string]string{"key": derefString(t.Key), "value": derefString(t.Value)})
+	for _, t := range set.Tags {
+		tags = append(tags, map[string]string{"key": t.Key, "value": t.Value})
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{"tags": tags})
 }
@@ -273,38 +272,38 @@ func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request) {
 			maxKeys = int32(n)
 		}
 	}
-	out, err := client.ListObjectVersions(r.Context(), bucket, q.Get("prefix"), q.Get("keyMarker"), q.Get("versionIdMarker"), maxKeys)
+	page, err := client.ListObjectVersions(r.Context(), bucket, q.Get("prefix"), q.Get("keyMarker"), q.Get("versionIdMarker"), maxKeys)
 	if err != nil {
 		h.writeInternalErr(w, err, "metadata operation failed")
 		return
 	}
 	versions := []map[string]any{}
-	for _, v := range out.Versions {
+	for _, v := range page.Versions {
 		versions = append(versions, map[string]any{
-			"key":          derefString(v.Key),
-			"versionId":    derefString(v.VersionId),
-			"isLatest":     boolOrFalse(v.IsLatest),
-			"lastModified": timeOrZero(v.LastModified).Format(time.RFC3339),
-			"size":         derefInt64(v.Size),
-			"etag":         derefString(v.ETag),
-			"storageClass": string(v.StorageClass),
+			"key":          v.Key,
+			"versionId":    v.VersionID,
+			"isLatest":     v.IsLatest,
+			"lastModified": v.LastModified.Format(time.RFC3339),
+			"size":         v.Size,
+			"etag":         v.ETag,
+			"storageClass": v.StorageClass,
 		})
 	}
 	deleteMarkers := []map[string]any{}
-	for _, d := range out.DeleteMarkers {
+	for _, d := range page.DeleteMarkers {
 		deleteMarkers = append(deleteMarkers, map[string]any{
-			"key":          derefString(d.Key),
-			"versionId":    derefString(d.VersionId),
-			"isLatest":     boolOrFalse(d.IsLatest),
-			"lastModified": timeOrZero(d.LastModified).Format(time.RFC3339),
+			"key":          d.Key,
+			"versionId":    d.VersionID,
+			"isLatest":     d.IsLatest,
+			"lastModified": d.LastModified.Format(time.RFC3339),
 		})
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{
 		"versions":            versions,
 		"deleteMarkers":       deleteMarkers,
-		"isTruncated":         boolOrFalse(out.IsTruncated),
-		"nextKeyMarker":       derefString(out.NextKeyMarker),
-		"nextVersionIdMarker": derefString(out.NextVersionIdMarker),
+		"isTruncated":         page.IsTruncated,
+		"nextKeyMarker":       page.NextKeyMarker,
+		"nextVersionIdMarker": page.NextVersionIDMarker,
 	})
 }
 
