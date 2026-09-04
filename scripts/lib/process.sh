@@ -2,7 +2,8 @@
 # s3clinet 进程管理：PID 文件、优雅停止（SIGTERM / SIGQUIT）、等待退出。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 本文件在 scripts/lib/，仓库根为上两级。
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUN_DIR="${S3C_RUN_DIR:-$ROOT/.run}"
 
 mkdir -p "$RUN_DIR"
