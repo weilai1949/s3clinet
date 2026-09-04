@@ -10,7 +10,12 @@ import (
 )
 
 func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(w, http.StatusOK, map[string]any{"accounts": h.store.List()})
+	accounts, err := h.store.List()
+	if err != nil {
+		h.writeInternalErr(w, err, "failed to load accounts")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
 }
 
 func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {

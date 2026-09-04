@@ -64,7 +64,7 @@ func (s *Store) load() error {
 }
 
 // List 返回全部账号（脱敏副本），按创建顺序。
-func (s *Store) List() []*model.Account {
+func (s *Store) List() ([]*model.Account, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*model.Account, 0, len(s.order))
@@ -73,7 +73,7 @@ func (s *Store) List() []*model.Account {
 			out = append(out, a.Sanitized())
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Get 返回指定账号（含密钥，供服务端内部使用）。

@@ -20,8 +20,8 @@ func TestStorePersistsAfterTmpResidue(t *testing.T) {
 		t.Fatalf("write residue: %v", err)
 	}
 	// 崩溃前的账号应仍然可读。
-	if accounts := s.List(); len(accounts) != 1 {
-		t.Fatalf("List = %d accounts, want 1", len(accounts))
+	if accounts, listErr := s.List(); listErr != nil || len(accounts) != 1 {
+		t.Fatalf("List: err=%v accounts=%d, want nil/1", listErr, len(accounts))
 	}
 	// 残骸存在时再次保存必须成功（自动清理残骸）。
 	if _, err := s.Create(&model.Account{Name: "second", Endpoint: "http://localhost:9000", AccessKey: "ak", SecretKey: "sk"}); err != nil {
@@ -61,7 +61,11 @@ func TestEncryptedStorePersistsAfterTmpResidue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	if got := len(s2.List()); got != 2 {
-		t.Fatalf("accounts = %d, want 2", got)
+	accounts, listErr := s2.List()
+	if listErr != nil {
+		t.Fatalf("List: %v", listErr)
+	}
+	if len(accounts) != 2 {
+		t.Fatalf("accounts = %d, want 2", len(accounts))
 	}
 }

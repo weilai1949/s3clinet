@@ -115,7 +115,7 @@ func (s *EncryptedStore) applyJSON(data []byte) error {
 	return nil
 }
 
-func (s *EncryptedStore) List() []*model.Account {
+func (s *EncryptedStore) List() ([]*model.Account, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*model.Account, 0, len(s.order))
@@ -124,7 +124,7 @@ func (s *EncryptedStore) List() []*model.Account {
 			out = append(out, a.Sanitized())
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (s *EncryptedStore) Get(id string) (*model.Account, error) {

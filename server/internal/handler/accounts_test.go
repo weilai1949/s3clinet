@@ -49,7 +49,7 @@ func TestHealthStoreUnavailable(t *testing.T) {
 // failPingStore 仅用于健康检查：Ping 失败，其余方法不调用。
 type failPingStore struct{}
 
-func (failPingStore) List() []*model.Account                        { return nil }
+func (failPingStore) List() ([]*model.Account, error)               { return nil, nil }
 func (failPingStore) Get(string) (*model.Account, error)            { return nil, store.ErrNotFound }
 func (failPingStore) Create(*model.Account) (*model.Account, error) { return nil, nil }
 func (failPingStore) Update(string, *model.Account) (*model.Account, error) {

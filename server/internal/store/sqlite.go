@@ -125,29 +125,27 @@ func sqliteScan(row interface{ Scan(...any) error }) (*model.Account, error) {
 
 const sqliteAccountCols = `id,name,endpoint,public_endpoint,region,access_key,secret_key,bucket,path_style,use_ssl,created_at,updated_at`
 
-func (s *SQLiteStore) List() []*model.Account {
+func (s *SQLiteStore) List() ([]*model.Account, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rows, err := s.db.Query(`SELECT ` + sqliteAccountCols + ` FROM accounts ORDER BY sort_order ASC`)
 	if err != nil {
-		// 不得伪装成「无账号」而不留痕迹；健康检查走 Ping。
-		fmt.Fprintf(os.Stderr, "s3clinet: sqlite List failed: %v\n", err)
-		return nil
+		// 不得伪装成「无账号」；把错误交给调用方映射 500。
+		return nil, fmt.Errorf("list accounts: %w", err)
 	}
 	defer rows.Close()
 	out := make([]*model.Account, 0)
 	for rows.Next() {
 		a, err := sqliteScan(rows)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "s3clinet: sqlite List scan failed: %v\n", err)
-			continue
+			return nil, fmt.Errorf("scan account row: %w", err)
 		}
 		out = append(out, a.Sanitized())
 	}
 	if err := rows.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "s3clinet: sqlite List rows: %v\n", err)
+		return nil, fmt.Errorf("iterate account rows: %w", err)
 	}
-	return out
+	return out, nil
 }
 
 // Ping 探测 SQLite 连接是否可用。

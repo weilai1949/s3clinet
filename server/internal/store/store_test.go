@@ -92,7 +92,10 @@ func TestPersistRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	list := s2.List()
+	list, err := s2.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
 	if len(list) != 1 {
 		t.Fatalf("expected 1 account, got %d", len(list))
 	}
