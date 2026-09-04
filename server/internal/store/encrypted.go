@@ -189,17 +189,30 @@ func (s *EncryptedStore) Update(id string, a *model.Account) (*model.Account, er
 func (s *EncryptedStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.accounts[id]; !ok {
+	a, ok := s.accounts[id]
+	if !ok {
 		return ErrNotFound
 	}
-	delete(s.accounts, id)
+	idx := -1
 	for i, oid := range s.order {
 		if oid == id {
-			s.order = append(s.order[:i], s.order[i+1:]...)
+			idx = i
 			break
 		}
 	}
-	return s.persistLocked()
+	delete(s.accounts, id)
+	if idx >= 0 {
+		s.order = append(s.order[:idx], s.order[idx+1:]...)
+	}
+	if err := s.persistLocked(); err != nil {
+		// 写盘失败：回滚内存状态，避免「磁盘仍在、内存已删」的漂移。
+		s.accounts[id] = a
+		if idx >= 0 {
+			s.order = append(s.order[:idx], append([]string{id}, s.order[idx:]...)...)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *EncryptedStore) Close() error { return nil }

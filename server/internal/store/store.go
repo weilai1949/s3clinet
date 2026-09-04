@@ -98,6 +98,9 @@ func (s *Store) Create(a *model.Account) (*model.Account, error) {
 	a.UpdatedAt = now
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.accounts[a.ID]; exists {
+		return nil, fmt.Errorf("account %s already exists", a.ID)
+	}
 	s.accounts[a.ID] = a
 	s.order = append(s.order, a.ID)
 	if err := s.persistLocked(); err != nil {
@@ -143,17 +146,30 @@ func (s *Store) Update(id string, a *model.Account) (*model.Account, error) {
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.accounts[id]; !ok {
+	a, ok := s.accounts[id]
+	if !ok {
 		return ErrNotFound
 	}
-	delete(s.accounts, id)
+	idx := -1
 	for i, oid := range s.order {
 		if oid == id {
-			s.order = append(s.order[:i], s.order[i+1:]...)
+			idx = i
 			break
 		}
 	}
-	return s.persistLocked()
+	delete(s.accounts, id)
+	if idx >= 0 {
+		s.order = append(s.order[:idx], s.order[idx+1:]...)
+	}
+	if err := s.persistLocked(); err != nil {
+		// 写盘失败：回滚内存状态，避免「磁盘仍在、内存已删」的漂移。
+		s.accounts[id] = a
+		if idx >= 0 {
+			s.order = append(s.order[:idx], append([]string{id}, s.order[idx:]...)...)
+		}
+		return err
+	}
+	return nil
 }
 
 // Close 释放资源；JSON 存储无额外资源需释放。
