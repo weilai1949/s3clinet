@@ -287,6 +287,8 @@ export function useObjectBrowser(bindings: KeyBindings) {
 
   /* ---- 键盘快捷键（文件管理器习惯；输入框聚焦时不触发） ---- */
   function onGlobalKey(e: KeyboardEvent) {
+    // KeepAlive 缓存下监听仍存活：面板被切走后不得用旧 selected 触发删除/预览/全选
+    if (!panelActive.value) return
     const t = e.target as HTMLElement | null
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' || t.isContentEditable)) return
     if (!account.value || !currentBucket.value) return

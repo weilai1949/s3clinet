@@ -45,8 +45,13 @@ async function loadBuckets() {
   }
 }
 
+// 加载序号：每次 loadMarkers +1；过期循环在首个 await 后静默终止，
+// 避免「快速切桶时两个并发循环互相 push 覆盖 marker」的竞态（仿 useObjectBrowser 的 loadSeq）。
+let loadSeq = 0
+
 async function loadMarkers(reset = true) {
   if (!accSel.value || !bucketSel.value) return
+  const seq = ++loadSeq
   if (reset) {
     markers.value = []
     nextKeyMarker.value = ''
@@ -66,6 +71,7 @@ async function loadMarkers(reset = true) {
         versionIdMarker: nextVersionIdMarker.value,
         maxKeys: 1000,
       })
+      if (seq !== loadSeq) return // 过期请求：新加载已接管 markers / 游标，静默退出
       markers.value.push(...r.deleteMarkers)
       nextKeyMarker.value = r.nextKeyMarker
       nextVersionIdMarker.value = r.nextVersionIdMarker
@@ -73,10 +79,12 @@ async function loadMarkers(reset = true) {
       if (r.deleteMarkers.length || !r.isTruncated || guard++ >= emptyPageSkip) break
     }
   } catch (e) {
-    error.value = toErrorMessage(e)
+    if (seq === loadSeq) error.value = toErrorMessage(e)
   } finally {
-    loading.value = false
-    loadingMore.value = false
+    if (seq === loadSeq) {
+      loading.value = false
+      loadingMore.value = false
+    }
   }
 }
 

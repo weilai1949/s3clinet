@@ -1,9 +1,9 @@
-import { ref, onBeforeUnmount, onDeactivated } from 'vue'
+import { ref, toRaw, onBeforeUnmount, onDeactivated } from 'vue'
 import { toErrorMessage } from '../errors'
 
 import { s3api, api, subscribeMigrateEvents } from '../api'
 import { uploadObject } from '../upload'
-import { toast } from '../store'
+import { toast, createProgressToast } from '../store'
 import { confirmDialog } from '../confirm'
 import { promptDialog } from '../prompt'
 import { copyText } from '../clipboard'
@@ -302,13 +302,19 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
   const uploading = ref(false)
   const uploadAbort = new Map<UploadItem, AbortController>()
 
+  /** 单条取消：先标记 cancelled 终态再 abort——worker 的 catch 不会把它送回 pending 重新组批。 */
   function abortUploadItem(it: UploadItem) {
-    uploadAbort.get(it)?.abort()
-    uploadAbort.delete(it)
+    if (it.status === 'pending' || it.status === 'uploading') it.status = 'cancelled'
+    uploadAbort.get(toRaw(it))?.abort()
+    uploadAbort.delete(toRaw(it))
   }
 
+  /** 全量取消（切后台 / 卸载）：同样先标记 cancelled，保证中止即停止，不再从 0 重传。 */
   function abortAllUploads() {
-    for (const ctrl of uploadAbort.values()) ctrl.abort()
+    for (const [it, ctrl] of uploadAbort) {
+      if (it.status === 'pending' || it.status === 'uploading') it.status = 'cancelled'
+      ctrl.abort()
+    }
     uploadAbort.clear()
   }
 
@@ -349,15 +355,21 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
         const worker = async () => {
           while (i < batch.length) {
             const it = batch[i++]
+            // 批内已被取消的条目直接跳过：不发起请求、不占用并发位
+            if (it.status === 'cancelled') continue
             const ctrl = new AbortController()
-            uploadAbort.set(it, ctrl)
+            uploadAbort.set(toRaw(it), ctrl)
             try {
               it.status = 'uploading'
               await uploadObject(it.file, { accId, bucket: it.bucket || ctx.currentBucket.value, key: it.key }, (p) => (it.pct = p), ctrl.signal)
               it.status = 'done'
               it.pct = 100
             } catch (err) {
-              if (err instanceof DOMException && err.name === 'AbortError') {
+              // status 可能已被 abortUploadItem 外部置为 cancelled（TS 无法看到跨函数可变状态）
+              const st = it.status as UploadItem['status']
+              if (st === 'cancelled') {
+                // cancelled 是终态：保持，外层组批与批内 worker 都会跳过
+              } else if (err instanceof DOMException && err.name === 'AbortError') {
                 it.status = 'pending'
                 it.pct = 0
               } else {
@@ -365,7 +377,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
                 it.err = toErrorMessage(err)
               }
             } finally {
-              uploadAbort.delete(it)
+              uploadAbort.delete(toRaw(it))
             }
           }
         }
@@ -452,13 +464,17 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
         bucket: ctx.currentBucket.value,
         prefix: e.key,
       })
+      // 进度 toast 节流（至多 500ms 一条，就地更新）；终态事件由下方完成 toast 立即发出
+      const delProgress = createProgressToast()
       const deleted = await new Promise<number>((resolve, reject) => {
         let n = 0
         const stop = subscribeMigrateEvents(
           start.jobId,
           (p) => {
             n = p.migrated ?? 0
-            if (p.total > 0) toast(tf('dest.toastDeleteProgress', { done: p.done, total: p.total }))
+            if (p.total > 0 && p.status !== 'done' && p.status !== 'cancelled') {
+              delProgress(tf('dest.toastDeleteProgress', { done: p.done, total: p.total }))
+            }
             if (p.status === 'done' || p.status === 'cancelled') {
               stop()
               resolve(n)

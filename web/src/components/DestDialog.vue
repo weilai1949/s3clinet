@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { toErrorMessage } from '../errors'
 
 import { s3api, subscribeMigrateEvents, type MigrateProgress } from '../api'
-import { toast } from '../store'
+import { toast, createProgressToast } from '../store'
 import { t, tf } from '../i18n'
 import ModalDialog from './ModalDialog.vue'
 import type { BucketItem } from '../types'
@@ -147,8 +147,12 @@ async function submitDest() {
           bucket: props.sourceBucket,
           prefix: props.objectKey,
         })
+        // 进度 toast 节流（至多 500ms 一条，就地更新）；终态事件由下方完成 toast 立即发出
+        const delProgress = createProgressToast()
         const d = await waitMigrateJob(del.jobId, (p) => {
-          if (p.total > 0) toast(tf('dest.toastDeleteProgress', { done: p.done, total: p.total }))
+          if (p.total > 0 && p.status !== 'done' && p.status !== 'cancelled') {
+            delProgress(tf('dest.toastDeleteProgress', { done: p.done, total: p.total }))
+          }
         })
         toast(
           del.truncated

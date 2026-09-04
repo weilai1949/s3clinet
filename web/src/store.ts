@@ -55,10 +55,33 @@ export const toasts = reactive<ToastItem[]>([])
 let toastSeq = 0
 const toastTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
-export function toast(text: string, kind: 'ok' | 'err' = 'ok', action?: ToastItem['action']) {
+export function toast(text: string, kind: 'ok' | 'err' = 'ok', action?: ToastItem['action']): number {
   const id = ++toastSeq
   toasts.push({ id, kind, text, action })
   toastTimers.set(id, setTimeout(() => dismissToast(id), 3600))
+  return id
+}
+
+/** 就地更新一条 toast 的文本（进度型反馈复用同一条，避免灌满 toast 栈）。 */
+export function updateToast(id: number, text: string) {
+  const i = toasts.findIndex((t) => t.id === id)
+  if (i >= 0) toasts[i].text = text
+}
+
+/**
+ * 进度型 toast 工厂（SSE 迁移/删除进度）：至多每 throttleMs 一条；
+ * 未过期直接就地更新同一条文本（已自动消失则新发）。终态反馈请直接调 toast()，不经过节流。
+ */
+export function createProgressToast(throttleMs = 500): (text: string) => void {
+  let id: number | null = null
+  let lastAt = 0
+  return (text) => {
+    const now = Date.now()
+    if (id !== null && now - lastAt < throttleMs) return
+    if (id !== null && toasts.some((t) => t.id === id)) updateToast(id, text)
+    else id = toast(text)
+    lastAt = now
+  }
 }
 
 export function dismissToast(id: number) {

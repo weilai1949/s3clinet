@@ -114,6 +114,7 @@ const {
   zipLoading,
   uploadQueue,
   uploadInput,
+  abortUploadItem,
   detail,
   headersOpen,
   headersKey,
@@ -238,8 +239,8 @@ const { preview, showPreview, ctxPreview } = previewComposable
         @toggle-view="toggleView"
       />
 
-      <!-- 上传队列（进行中 / 失败） -->
-      <UploadQueue :items="uploadQueue" />
+      <!-- 上传队列（进行中 / 失败），单条条目支持取消 -->
+      <UploadQueue :items="uploadQueue" @cancel="abortUploadItem" />
 
       <!-- 上传文件隐藏输入 -->
       <input ref="uploadInput" type="file" multiple style="display:none" @change="onPickUpload" />
