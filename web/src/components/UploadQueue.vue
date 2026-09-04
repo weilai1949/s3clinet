@@ -1,14 +1,7 @@
 <script lang="ts">
-export interface UploadItem {
-  file: File
-  key: string
-  /** 入队时所属桶（防止上传途中切换桶导致串桶）。 */
-  bucket?: string
-  pct: number
-  /** cancelled：用户主动中止的终态——不再回 pending 重新组批上传。 */
-  status: 'pending' | 'uploading' | 'done' | 'err' | 'cancelled'
-  err?: string
-}
+// 条目结构收敛到共享状态机（useUploadQueue）；此处沿用历史导出名 UploadItem。
+import type { UploadQueueItem } from '../composables/useUploadQueue'
+export type UploadItem = UploadQueueItem
 </script>
 
 <script setup lang="ts">

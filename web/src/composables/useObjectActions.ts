@@ -1,16 +1,15 @@
-import { ref, toRaw, onBeforeUnmount, onDeactivated } from 'vue'
+import { ref } from 'vue'
 import { toErrorMessage } from '../errors'
 
 import { s3api, api, subscribeMigrateEvents } from '../api'
-import { uploadObject } from '../upload'
 import { toast, createProgressToast } from '../store'
 import { confirmDialog } from '../confirm'
 import { promptDialog } from '../prompt'
 import { copyText } from '../clipboard'
 import { proxyUrl } from '../proxy'
 import { t, tf } from '../i18n'
+import { useUploadQueue } from './useUploadQueue'
 import type { Account, ObjectItem, ObjectMeta } from '../types'
-import type { UploadItem } from '../components/UploadQueue.vue'
 import type { ComputedRef, Ref } from 'vue'
 import type { CtxMenu } from './useObjectBrowser'
 
@@ -296,30 +295,15 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     }
   }
 
-  /* ---- 上传到当前目录（复用 presign PUT 直传） ---- */
+  /* ---- 上传到当前目录（共享 useUploadQueue 状态机；cancelled 为用户中止终态） ---- */
   const uploadInput = ref<HTMLInputElement>()
-  const uploadQueue = ref<UploadItem[]>([])
-  const uploading = ref(false)
-  const uploadAbort = new Map<UploadItem, AbortController>()
-
-  /** 单条取消：先标记 cancelled 终态再 abort——worker 的 catch 不会把它送回 pending 重新组批。 */
-  function abortUploadItem(it: UploadItem) {
-    if (it.status === 'pending' || it.status === 'uploading') it.status = 'cancelled'
-    uploadAbort.get(toRaw(it))?.abort()
-    uploadAbort.delete(toRaw(it))
-  }
-
-  /** 全量取消（切后台 / 卸载）：同样先标记 cancelled，保证中止即停止，不再从 0 重传。 */
-  function abortAllUploads() {
-    for (const [it, ctrl] of uploadAbort) {
-      if (it.status === 'pending' || it.status === 'uploading') it.status = 'cancelled'
-      ctrl.abort()
-    }
-    uploadAbort.clear()
-  }
-
-  onDeactivated(abortAllUploads)
-  onBeforeUnmount(abortAllUploads)
+  const queue = useUploadQueue({
+    target: (it) => ({ accId: ctx.account.value!.id, bucket: it.bucket || ctx.currentBucket.value, key: it.key }),
+  })
+  const uploadQueue = queue.items
+  const uploading = queue.running
+  const abortUploadItem = queue.abortItem
+  const abortAllUploads = queue.abortAll
 
   function keyForUpload(name: string): string {
     return (ctx.prefix.value ? ctx.prefix.value.replace(/\/+$/, '') + '/' : '') + name
@@ -332,57 +316,15 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
 
   function onPickUpload(e: Event) {
     const files = (e.target as HTMLInputElement).files
-    if (!files?.length) return
-    for (const f of Array.from(files)) {
-      if (!f.size && f.type === '') continue // 跳过目录占位
-      uploadQueue.value.push({ file: f, key: keyForUpload(f.name), bucket: ctx.currentBucket.value, pct: 0, status: 'pending' })
-    }
+    queue.enqueue(files, (f) => ({ key: keyForUpload(f.name), bucket: ctx.currentBucket.value }))
     ;(e.target as HTMLInputElement).value = ''
     runUpload()
   }
 
   async function runUpload() {
     if (uploading.value || !ctx.account.value) return
-    uploading.value = true
-    const accId = ctx.account.value.id
-    const CONCURRENCY = 2
     try {
-      // 循环直到队列中没有待上传项（期间可继续追加文件）
-      for (;;) {
-        const batch = uploadQueue.value.filter((it) => it.status === 'pending')
-        if (!batch.length) break
-        let i = 0
-        const worker = async () => {
-          while (i < batch.length) {
-            const it = batch[i++]
-            // 批内已被取消的条目直接跳过：不发起请求、不占用并发位
-            if (it.status === 'cancelled') continue
-            const ctrl = new AbortController()
-            uploadAbort.set(toRaw(it), ctrl)
-            try {
-              it.status = 'uploading'
-              await uploadObject(it.file, { accId, bucket: it.bucket || ctx.currentBucket.value, key: it.key }, (p) => (it.pct = p), ctrl.signal)
-              it.status = 'done'
-              it.pct = 100
-            } catch (err) {
-              // status 可能已被 abortUploadItem 外部置为 cancelled（TS 无法看到跨函数可变状态）
-              const st = it.status as UploadItem['status']
-              if (st === 'cancelled') {
-                // cancelled 是终态：保持，外层组批与批内 worker 都会跳过
-              } else if (err instanceof DOMException && err.name === 'AbortError') {
-                it.status = 'pending'
-                it.pct = 0
-              } else {
-                it.status = 'err'
-                it.err = toErrorMessage(err)
-              }
-            } finally {
-              uploadAbort.delete(toRaw(it))
-            }
-          }
-        }
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batch.length) }, worker))
-      }
+      await queue.run()
       const failed = uploadQueue.value.filter((it) => it.status === 'err').length
       if (failed) toast(tf('upload.toastPartial', { ok: uploadQueue.value.length - failed, fail: failed }), 'err')
       else toast(tf('objects.toastUploadOkDir', { n: uploadQueue.value.length }))

@@ -1,35 +1,40 @@
 <script setup lang="ts">
 defineOptions({ name: 'UploadPanel' })
 
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { toErrorMessage } from '../errors'
 
 import { s3api } from '../api'
-import { uploadObject } from '../upload'
 import { currentAccount, toast, requestTab } from '../store'
 import { copyText } from '../clipboard'
 import { fmtSize } from '../format'
 import { t, tf } from '../i18n'
+import { useUploadQueue } from '../composables/useUploadQueue'
+import type { UploadQueueItem } from '../composables/useUploadQueue'
 
 const prefix = ref('')
-let itemSeq = 0
-const items = ref<
-  {
-    id: number
-    file: File
-    key: string
-    status: 'pending' | 'signing' | 'uploading' | 'done' | 'err'
-    pct: number
-    err?: string
-    abort?: AbortController
-  }[]
->([])
-const running = ref(false)
 const error = ref('')
 const dragging = ref(false)
 const fileInput = ref<HTMLInputElement>()
 
 const account = computed(() => currentAccount())
+
+function keyFor(filename: string): string {
+  return (prefix.value ? prefix.value.replace(/\/+$/, '') + '/' : '') + filename
+}
+
+// 共享上传队列：并发控制 / 状态机 / abort 见 useUploadQueue。
+// 本面板语义：中止回 pending（可再次上传，requeue）、单批快照（不带边传边加）。
+const queue = useUploadQueue({
+  target: (it) => ({ accId: account.value!.id, key: it.key }),
+  onItemStart: (it) => (it.key = keyFor(it.file.name)), // 用当前前缀
+  selectBatch: (all) => all.filter((it) => it.status !== 'done' && it.status !== 'cancelled'),
+  drain: false,
+  onAbort: 'requeue',
+})
+const items = queue.items
+const running = queue.running
+
 const hasErr = computed(() => items.value.some((it) => it.status === 'err'))
 const doneCount = computed(() => items.value.filter((it) => it.status === 'done').length)
 const totalPct = computed(() => {
@@ -37,19 +42,8 @@ const totalPct = computed(() => {
   return Math.round(items.value.reduce((s, it) => s + it.pct, 0) / items.value.length)
 })
 
-// 直传并发数：过低慢，过高浏览器/对端都吃力，3 是稳妥值。
-const CONCURRENCY = 3
-
-function keyFor(filename: string): string {
-  return (prefix.value ? prefix.value.replace(/\/+$/, '') + '/' : '') + filename
-}
-
 function addFiles(files: FileList | null) {
-  if (!files || !files.length) return
-  for (const f of Array.from(files)) {
-    if (!f.size && f.type === '') continue // 跳过目录占位
-    items.value.push({ id: ++itemSeq, file: f, key: keyFor(f.name), status: 'pending', pct: 0 })
-  }
+  queue.enqueue(files, (f) => ({ key: keyFor(f.name) }))
   // 允许重复选择同一文件
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -59,53 +53,16 @@ function onDrop(e: DragEvent) {
   addFiles(e.dataTransfer?.files ?? null)
 }
 
-async function uploadOne(accId: string, it: (typeof items.value)[number]) {
-  it.key = keyFor(it.file.name) // 用当前前缀
-  it.status = 'signing'
-  it.err = undefined
-  const ctrl = new AbortController()
-  it.abort = ctrl
-  try {
-    it.status = 'uploading'
-    await uploadObject(it.file, { accId, key: it.key }, (p) => (it.pct = p), ctrl.signal)
-    it.status = 'done'
-    it.pct = 100
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') {
-      it.status = 'pending'
-      it.pct = 0
-      return
-    }
-    it.status = 'err'
-    it.err = toErrorMessage(e)
-  } finally {
-    it.abort = undefined
-  }
-}
-
 async function uploadAll() {
   if (!account.value) return
-  running.value = true
   error.value = ''
-  const accId = account.value.id
-  const queue = items.value.filter((it) => it.status !== 'done')
-  let idx = 0
-  async function worker() {
-    while (idx < queue.length) {
-      await uploadOne(accId, queue[idx++])
-    }
-  }
-  try {
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
-    const failed = queue.filter((it) => it.status === 'err').length
-    if (queue.length) {
-      // 完成 Toast 带「查看对象」跳转（跨面板联动，互联网应用习惯）
-      const goObjects = { label: t('upload.viewObjects'), onClick: () => requestTab('objects') }
-      if (failed) toast(tf('upload.toastPartial', { ok: queue.length - failed, fail: failed }), 'err', goObjects)
-      else toast(tf('upload.toastOk', { n: queue.length }), 'ok', goObjects)
-    }
-  } finally {
-    running.value = false
+  const processed = await queue.run()
+  const failed = processed.filter((it) => it.status === 'err').length
+  if (processed.length) {
+    // 完成 Toast 带「查看对象」跳转（跨面板联动，互联网应用习惯）
+    const goObjects = { label: t('upload.viewObjects'), onClick: () => requestTab('objects') }
+    if (failed) toast(tf('upload.toastPartial', { ok: processed.length - failed, fail: failed }), 'err', goObjects)
+    else toast(tf('upload.toastOk', { n: processed.length }), 'ok', goObjects)
   }
 }
 
@@ -120,23 +77,13 @@ function retryFailed() {
   uploadAll()
 }
 
-function abortItem(it: (typeof items.value)[number]) {
-  if (it.status === 'uploading' || it.status === 'signing') it.abort?.abort()
-}
-
 function removeItem(i: number) {
-  abortItem(items.value[i])
+  queue.abortItem(items.value[i])
   items.value.splice(i, 1)
 }
 
-function abortAllInFlight() {
-  for (const it of items.value) abortItem(it)
-}
-
-onBeforeUnmount(abortAllInFlight)
-
 /** 为已完成项生成 1 小时签名 GET 链接并复制（互联网上传面板习惯：传完即可分享）。 */
-async function copyDoneLink(it: (typeof items.value)[number]) {
+async function copyDoneLink(it: UploadQueueItem) {
   if (!account.value) return
   try {
     const res = await s3api.presign(account.value.id, {
@@ -152,7 +99,7 @@ async function copyDoneLink(it: (typeof items.value)[number]) {
 }
 
 function clearList() {
-  abortAllInFlight()
+  queue.abortAll()
   items.value = []
 }
 
