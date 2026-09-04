@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/weilai1949/s3clinet/server/internal/model"
 	"github.com/weilai1949/s3clinet/server/internal/s3wrap"
@@ -96,51 +95,10 @@ func (h *Handler) copyMany(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusOK, copyBatchJSON(out, len(pairs), false))
 		return
 	}
-	copied, failed := 0, 0
-	var failMsg string
-	var failKeys []string
-	type copyResult struct {
-		key string
-		err error
-	}
-	jobs := make(chan string)
-	results := make(chan copyResult, len(pairs))
-	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for k := range jobs {
-				dst := service.BaseKey(k, req.TargetPrefix)
-				if err := client.CopyObject(r.Context(), bucket, k, targetBucket, dst); err != nil {
-					results <- copyResult{k, err}
-					continue
-				}
-				if err := client.DeleteObject(r.Context(), bucket, k); err != nil {
-					results <- copyResult{k, fmt.Errorf("copied %s but failed to delete source: %w", k, err)}
-					continue
-				}
-				results <- copyResult{k, nil}
-			}
-		}()
-	}
-	for _, p := range pairs {
-		jobs <- p[0]
-	}
-	close(jobs)
-	wg.Wait()
-	close(results)
-	for res := range results {
-		if res.err != nil {
-			failed++
-			failKeys = append(failKeys, res.key)
-			if failMsg == "" {
-				failMsg = batchItemError(res.key, res.err)
-			}
-			continue
-		}
-		copied++
-	}
+	out := copyKeysThenDelete(r.Context(), client, bucket, targetBucket, pairs, 4, nil)
+	copied, failed := out.OK, out.Failed
+	failMsg := out.LastError
+	failKeys := out.FailKeys
 	resp := map[string]any{"copied": copied, "failed": failed, "total": len(pairs)}
 	if failMsg != "" {
 		resp["lastError"] = failMsg
@@ -222,75 +180,18 @@ func copyKeysThenDelete(
 	ctx context.Context, client *s3wrap.Client, srcBucket, dstBucket string,
 	pairs [][2]string, workers int, onProgress func(service.Progress),
 ) service.BatchResult {
-	if workers < 1 {
-		workers = 4
-	}
-	total := len(pairs)
-	type result struct {
-		key string
-		err error
-	}
-	jobs := make(chan [2]string)
-	results := make(chan result, total)
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for p := range jobs {
-				if ctx.Err() != nil {
-					results <- result{p[0], ctx.Err()}
-					continue
-				}
-				if err := client.CopyObject(ctx, srcBucket, p[0], dstBucket, p[1]); err != nil {
-					results <- result{p[0], err}
-					continue
-				}
-				if err := client.DeleteObject(ctx, srcBucket, p[0]); err != nil {
-					results <- result{p[0], fmt.Errorf("copied %s but failed to delete source: %w", p[0], err)}
-					continue
-				}
-				results <- result{p[0], nil}
+	return service.RunBatch(ctx, pairs, workers,
+		func(p [2]string) string { return p[0] },
+		func(ctx context.Context, p [2]string) error {
+			if err := client.CopyObject(ctx, srcBucket, p[0], dstBucket, p[1]); err != nil {
+				return err
 			}
-		}()
-	}
-	for _, p := range pairs {
-		jobs <- p
-	}
-	close(jobs)
-	wg.Wait()
-	close(results)
-
-	var out service.BatchResult
-	done := 0
-	for res := range results {
-		done++
-		if res.err != nil {
-			out.Failed++
-			out.FailKeys = append(out.FailKeys, res.key)
-			if out.LastError == "" {
-				out.LastError = batchItemError(res.key, res.err)
+			if err := client.DeleteObject(ctx, srcBucket, p[0]); err != nil {
+				return fmt.Errorf("copied %s but failed to delete source: %w", p[0], err)
 			}
-			if onProgress != nil {
-				onProgress(service.Progress{
-					Done: done, Total: total, OK: out.OK, Failed: out.Failed,
-					Key: res.key, Error: s3wrap.UserMessage(res.err), Status: "running",
-				})
-			}
-			continue
-		}
-		out.OK++
-		if onProgress != nil {
-			onProgress(service.Progress{
-				Done: done, Total: total, OK: out.OK, Failed: out.Failed,
-				Key: res.key, Status: "running",
-			})
-		}
-	}
-	if len(out.FailKeys) > 200 {
-		out.FailKeys = out.FailKeys[:200]
-	}
-	return out
+			return nil
+		},
+		onProgress)
 }
 
 type copyPrefixReq struct {

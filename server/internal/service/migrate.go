@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"strings"
-	"sync"
 
 	"github.com/weilai1949/s3clinet/server/internal/s3wrap"
 )
@@ -22,81 +21,22 @@ func MigrateKeys(
 	if workers < 1 {
 		workers = 4
 	}
-	total := len(keys)
-	type res struct {
-		key string
-		err error
-	}
-	jobs := make(chan string)
-	results := make(chan res, total)
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for k := range jobs {
-				if ctx.Err() != nil {
-					results <- res{k, ctx.Err()}
-					continue
-				}
-				dstKey := targetPrefix + k
-				var merr error
-				if sameEP {
-					merr = src.CopyObject(ctx, srcBucket, k, dstBucket, dstKey)
-					if merr != nil && s3wrap.IsEntityTooLarge(merr) {
-						merr = StreamCopy(ctx, src, dst, srcBucket, k, dstBucket, dstKey)
-					}
-				} else {
+	return RunBatch(ctx, keys, workers,
+		func(k string) string { return k },
+		func(ctx context.Context, k string) error {
+			dstKey := targetPrefix + k
+			var merr error
+			if sameEP {
+				merr = src.CopyObject(ctx, srcBucket, k, dstBucket, dstKey)
+				if merr != nil && s3wrap.IsEntityTooLarge(merr) {
 					merr = StreamCopy(ctx, src, dst, srcBucket, k, dstBucket, dstKey)
 				}
-				results <- res{k, merr}
+			} else {
+				merr = StreamCopy(ctx, src, dst, srcBucket, k, dstBucket, dstKey)
 			}
-		}()
-	}
-	for _, k := range keys {
-		jobs <- k
-	}
-	close(jobs)
-	wg.Wait()
-	close(results)
-
-	var out BatchResult
-	done := 0
-	for r := range results {
-		done++
-		if r.err != nil {
-			out.Failed++
-			out.FailKeys = append(out.FailKeys, r.key)
-			if out.LastError == "" {
-				out.LastError = "failed at " + r.key + ": " + s3wrap.UserMessage(r.err)
-			}
-			if onProgress != nil {
-				onProgress(Progress{
-					Done: done, Total: total, OK: out.OK, Failed: out.Failed,
-					Key: r.key, Error: s3wrap.UserMessage(r.err), Status: "running",
-				})
-			}
-			continue
-		}
-		out.OK++
-		if onProgress != nil {
-			onProgress(Progress{
-				Done: done, Total: total, OK: out.OK, Failed: out.Failed,
-				Key: r.key, Status: "running",
-			})
-		}
-	}
-	if len(out.FailKeys) > 200 {
-		out.FailKeys = out.FailKeys[:200]
-	}
-	if onProgress != nil {
-		status := "done"
-		if ctx.Err() != nil {
-			status = "cancelled"
-		}
-		onProgress(Progress{Done: total, Total: total, OK: out.OK, Failed: out.Failed, Status: status})
-	}
-	return out
+			return merr
+		},
+		onProgress)
 }
 
 // SameEndpoint 比较两个 endpoint（保留 scheme，去尾斜杠，缺省补 http://）。

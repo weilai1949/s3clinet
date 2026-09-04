@@ -28,46 +28,51 @@ type Progress struct {
 	Status string // running|done|cancelled
 }
 
-// CopyKeys 同账号内有界并发 CopyObject。
-func CopyKeys(
+// RunBatch 有界并发执行批量任务，并在每个条目完成时立刻回调进度。
+// 旧实现先 wg.Wait() 再排空 results，进度全程停在 0/total、任务结束才一次性灌出；
+// 现由独立 goroutine 在全部 worker 退出后关闭 results，主 goroutine 边收边回调。
+func RunBatch[I any](
 	ctx context.Context,
-	client *s3wrap.Client,
-	srcBucket, dstBucket string,
-	pairs [][2]string, // [srcKey, dstKey]
+	items []I,
 	workers int,
+	keyOf func(I) string,
+	do func(ctx context.Context, item I) error,
 	onProgress func(Progress),
 ) BatchResult {
 	if workers < 1 {
 		workers = 4
 	}
-	total := len(pairs)
-	type res struct {
+	total := len(items)
+	type itemRes struct {
 		key string
 		err error
 	}
-	jobs := make(chan [2]string)
-	results := make(chan res, total)
+	jobs := make(chan I)
+	results := make(chan itemRes, total) // 全量缓冲：worker 永不阻塞
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for p := range jobs {
+			for it := range jobs {
 				if ctx.Err() != nil {
-					results <- res{p[0], ctx.Err()}
+					results <- itemRes{keyOf(it), ctx.Err()}
 					continue
 				}
-				err := client.CopyObject(ctx, srcBucket, p[0], dstBucket, p[1])
-				results <- res{p[0], err}
+				results <- itemRes{keyOf(it), do(ctx, it)}
 			}
 		}()
 	}
-	for _, p := range pairs {
-		jobs <- p
-	}
-	close(jobs)
-	wg.Wait()
-	close(results)
+	go func() {
+		for _, it := range items {
+			jobs <- it
+		}
+		close(jobs)
+	}()
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
 
 	var out BatchResult
 	done := 0
@@ -106,6 +111,23 @@ func CopyKeys(
 		onProgress(Progress{Done: total, Total: total, OK: out.OK, Failed: out.Failed, Status: status})
 	}
 	return out
+}
+
+// CopyKeys 同账号内有界并发 CopyObject。
+func CopyKeys(
+	ctx context.Context,
+	client *s3wrap.Client,
+	srcBucket, dstBucket string,
+	pairs [][2]string, // [srcKey, dstKey]
+	workers int,
+	onProgress func(Progress),
+) BatchResult {
+	return RunBatch(ctx, pairs, workers,
+		func(p [2]string) string { return p[0] },
+		func(ctx context.Context, p [2]string) error {
+			return client.CopyObject(ctx, srcBucket, p[0], dstBucket, p[1])
+		},
+		onProgress)
 }
 
 // RelKey 将源 key 相对 prefix 映射到目标前缀。
