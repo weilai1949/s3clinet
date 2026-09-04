@@ -72,8 +72,12 @@ reload_nginx() {
   # 本机 nginx（run-dev --nginx 或手动启动）
   local pid
   if pid="$(read_pid nginx 2>/dev/null)" && is_running "$pid"; then
-    echo "[nginx] 本机 reload (pid=$pid)"
-    nginx -s reload -g "pid $RUN_DIR/nginx.pid;" 2>/dev/null || kill -HUP "$pid"
+    if is_expected_process "$pid" "$(expected_process_pattern nginx)"; then
+      echo "[nginx] 本机 reload (pid=$pid)"
+      nginx -s reload -g "pid $RUN_DIR/nginx.pid;" 2>/dev/null || kill -HUP "$pid"
+      return 0
+    fi
+    echo "[nginx] 警告: pid=$pid 不是预期的 nginx 进程（PID 已被复用？），跳过 reload 且不 kill" >&2
     return 0
   fi
   if [[ -f "$RUN_DIR/nginx.pid" ]] && is_running "$(cat "$RUN_DIR/nginx.pid")"; then
