@@ -147,6 +147,7 @@ revokeObjectURL；`{} as KeyBindings` cast hack。
 | 9 | R4 防腐层：s3wrap 全部返回 DTO，handler/service 零 SDK 类型；presign 零过期守卫（93.4%） | `fc3269c` |
 | 10 | i18n 按域拆分（1352→82 行）+ 双上传队列收敛为共享状态机 | `88e0205` |
 | 11 | 死代码清理：api.ts requestBlob/downloadZip、useObjectBrowser 冗余文件排序；后端扫描无未引用导出 | 本次提交 |
+| 12 | 后端单测覆盖率 55%→94.5%（config 100 / model 100 / s3wrap 99.7 / service 94.8 / main 94.6 / handler 93.5 / store 91.2），CI 总覆盖率门禁同步提至 90%；顺带修复 Store/EncryptedStore.Delete 持久化失败不回滚、json Store.Create 重复 ID 静默覆盖 | `ea60969` 及此前 coverage 提交链 |
 
 注：第 4 节「GET /api/accounts 返回明文 SecretKey」一项为误报（所有出口均 `Sanitized()`），
 未采纳；见第 4 节原文。
