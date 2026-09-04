@@ -53,9 +53,9 @@ jobs:
         run: |
           go test -race -count=1 -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out | tee coverage.txt
-          # 整体覆盖率守卫（当前基线约 61%；防止显著回退）
+          # 整体覆盖率守卫（2026-09 提升至 90% 基线；防止显著回退）
           pct=$(go tool cover -func=coverage.out | awk '/total:/ {gsub(/%/,"",$3); print $3}')
-          awk -v p="$pct" 'BEGIN { if (p+0 < 55) { print "coverage " p "% < 55%"; exit 1 } }'
+          awk -v p="$pct" 'BEGIN { if (p+0 < 90) { print "coverage " p "% < 90%"; exit 1 } }'
 
       - name: Build
         working-directory: server
