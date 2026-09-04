@@ -76,7 +76,9 @@ POST /api/accounts/preview-buckets
 ### 连通性测试
 ```
 POST /api/accounts/{id}/test
+POST /api/accounts/{id}/test?bucket=B
 ```
+有默认桶（或 `?bucket=`）时对该桶 `HeadBucket`；否则用 `ListBuckets` 探测凭证与端点。
 ```json
 200 {"ok":true,"bucket":"b"}
 ```

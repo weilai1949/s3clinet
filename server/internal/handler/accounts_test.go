@@ -354,6 +354,47 @@ func TestAccountRUD(t *testing.T) {
 	}
 }
 
+// TestAccountConnectivityWithoutBucket 无默认桶时用 ListBuckets 探测连通性。
+func TestAccountConnectivityWithoutBucket(t *testing.T) {
+	s3fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && !r.URL.Query().Has("list-type") {
+			io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>o</ID></Owner><Buckets></Buckets></ListAllMyBucketsResult>`)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer s3fake.Close()
+
+	st, err := store.New(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	acc, err := st.Create(&model.Account{
+		Name: "nobucket", Endpoint: s3fake.URL, Region: "us-east-1",
+		AccessKey: "ak", SecretKey: "sk", PathStyle: true,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+
+	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/test", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var tc struct {
+		OK  bool   `json:"ok"`
+		Err string `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &tc); err != nil {
+		t.Fatalf("body: %v", err)
+	}
+	if !tc.OK {
+		t.Fatalf("want ok, got %+v body=%s", tc, rr.Body.String())
+	}
+}
+
 // TestPreviewBuckets 补测：用表单凭证临时列出桶（preview-buckets，不落库）。
 func TestPreviewBuckets(t *testing.T) {
 	s3fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

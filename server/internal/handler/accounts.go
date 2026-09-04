@@ -95,7 +95,7 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
 }
 
-// testAccount 通过 HeadBucket 检测连通性。
+// testAccount 检测连通性：有默认桶时 HeadBucket，否则 ListBuckets。
 func (h *Handler) testAccount(w http.ResponseWriter, r *http.Request) {
 	client, acc, ok := h.accountClient(w, r)
 	if !ok {
@@ -104,6 +104,15 @@ func (h *Handler) testAccount(w http.ResponseWriter, r *http.Request) {
 	bucket := r.URL.Query().Get("bucket")
 	if bucket == "" {
 		bucket = acc.BucketOrDefault()
+	}
+	if bucket == "" {
+		if _, err := client.ListBuckets(r.Context()); err != nil {
+			h.log.Debug("list buckets failed", "err", err)
+			h.writeJSON(w, http.StatusOK, map[string]any{"ok": false, "bucket": "", "error": s3UserMessage(err)})
+			return
+		}
+		h.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "bucket": ""})
+		return
 	}
 	if err := client.HeadBucket(r.Context(), bucket); err != nil {
 		h.log.Debug("head bucket failed", "bucket", bucket, "err", err)
