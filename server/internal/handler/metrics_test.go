@@ -12,13 +12,14 @@ import (
 	"github.com/weilai1949/s3clinet/server/internal/store"
 )
 
-func TestMetricsEndpoint(t *testing.T) {
+func TestMetricsEndpointExposed(t *testing.T) {
 	st, err := store.New(filepath.Join(t.TempDir(), "a.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	// 显式开启 metrics 暴露。
+	h := New(st, logger, t.TempDir(), nil, "", "test", true).Routes()
 	// 触发一次请求以累计计数
 	rr0 := httptest.NewRecorder()
 	h.ServeHTTP(rr0, httptest.NewRequest(http.MethodGet, "/api/health", nil))
@@ -35,5 +36,21 @@ func TestMetricsEndpoint(t *testing.T) {
 	}
 	if rr.Header().Get("X-Request-ID") == "" {
 		t.Fatal("missing X-Request-ID")
+	}
+}
+
+// 默认（exposeMetrics=false）下 /api/metrics 须返回 404，假装端点不存在，
+// 避免公网被 scrape 运行指标（PROBE 探测也只看到 404）。
+func TestMetricsEndpointHiddenByDefault(t *testing.T) {
+	st, err := store.New(filepath.Join(t.TempDir(), "a.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404", rr.Code)
 	}
 }

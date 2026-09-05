@@ -149,6 +149,18 @@ func (h *Handler) withCORS(next http.Handler) http.Handler {
 	})
 }
 
+// withMetricsGate 在未开启 S3C_EXPOSE_METRICS 时，对 /api/metrics 返回 404，
+// 让外部看不出该端点是否存在（避免公网被 scrape 运行指标）。
+func (h *Handler) withMetricsGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.exposeMetrics && r.URL.Path == "/api/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // withAuth 在配置了 S3C_TOKEN 时，对 /api/* 强制 Bearer 鉴权。
 // 支持逗号分隔多 token（轮换）；跳过 OPTIONS 预检与 /api/health。
 func (h *Handler) withAuth(next http.Handler) http.Handler {

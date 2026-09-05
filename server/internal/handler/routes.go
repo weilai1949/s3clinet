@@ -87,7 +87,7 @@ func (h *Handler) Routes() http.Handler {
 	spa := http.FileServer(http.Dir(h.staticDir))
 	mux.Handle("/", h.spaHandler(spa))
 
-	return h.withLogging(h.withSecurityHeaders(h.withCORS(h.withAuth(h.withRateLimit(mux)))))
+	return h.withLogging(h.withSecurityHeaders(h.withCORS(h.withAuth(h.withMetricsGate(h.withRateLimit(mux))))))
 }
 
 func (h *Handler) spaHandler(fs http.Handler) http.Handler {

@@ -17,22 +17,25 @@ import (
 
 // Handler 承载 HTTP 接口逻辑。
 type Handler struct {
-	store       store.AccountStore
-	log         *slog.Logger
-	staticDir   string
-	corsOrigins []string // CORS 白名单；空 = 仅同源 + localhost/tauri
-	tokens      []string // Bearer 鉴权；可多个（S3C_TOKEN 逗号分隔，支持轮换）
-	version     string   // 服务端版本号（ldflags 注入），用于 /api/health 上报
-	clients     *clientCache
-	migrateJobs *service.JobRegistry
-	limiter     *ipLimiter
+	store         store.AccountStore
+	log           *slog.Logger
+	staticDir     string
+	corsOrigins   []string // CORS 白名单；空 = 仅同源 + localhost/tauri
+	tokens        []string // Bearer 鉴权；可多个（S3C_TOKEN 逗号分隔，支持轮换）
+	version       string   // 服务端版本号（ldflags 注入），用于 /api/health 上报
+	exposeMetrics bool     // 是否暴露 /api/metrics（默认 false：404 假装不存在）
+	clients       *clientCache
+	migrateJobs   *service.JobRegistry
+	limiter       *ipLimiter
 }
 
 // New 构造 handler。token 支持逗号分隔多值（轮换/吊销：去掉旧 token 即可）。
-func New(st store.AccountStore, log *slog.Logger, staticDir string, corsOrigins []string, token, version string) *Handler {
+// exposeMetrics=false 时 /api/metrics 一律 404，避免公网暴露运行指标。
+func New(st store.AccountStore, log *slog.Logger, staticDir string, corsOrigins []string, token, version string, exposeMetrics bool) *Handler {
 	return &Handler{
 		store: st, log: log, staticDir: staticDir, corsOrigins: corsOrigins,
-		tokens: splitTokens(token), version: version, clients: newClientCache(),
+		tokens: splitTokens(token), version: version, exposeMetrics: exposeMetrics,
+		clients:     newClientCache(),
 		migrateJobs: service.NewJobRegistry(),
 		limiter:     newIPLimiter(),
 	}
