@@ -135,3 +135,20 @@ func TestIsBlockedHostnameGaps(t *testing.T) {
 		t.Error("normal host should not be blocked")
 	}
 }
+
+// TestS3HTTPClientProxyDisabled S3 出站 HTTP 客户端必须禁用 HTTP(S)_PROXY，
+// 避免环境变量把请求代理到任意主机绕过 dialContextSSRF。
+func TestS3HTTPClientProxyDisabled(t *testing.T) {
+	// 即便设了 HTTP_PROXY 也不应被使用。
+	t.Setenv("HTTP_PROXY", "http://evil.example:9999")
+	t.Setenv("HTTPS_PROXY", "http://evil.example:9999")
+	t.Setenv("NO_PROXY", "")
+	c := newHTTPClient()
+	tr, ok := c.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("client.Transport type = %T, want *http.Transport", c.client.Transport)
+	}
+	if tr.Proxy != nil {
+		t.Fatalf("S3 HTTP transport Proxy is set, want nil (HTTP(S)_PROXY must not bypass SSRF dial guard)")
+	}
+}

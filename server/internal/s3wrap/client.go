@@ -119,6 +119,9 @@ func newHTTPClient() *ssrfAwareClient {
 			tr.IdleConnTimeout = 90 * time.Second
 			tr.MaxIdleConns = 128
 			tr.MaxIdleConnsPerHost = 32
+			// 安全关键：禁用 HTTP(S)_PROXY 环境变量，避免 S3 出站被代理到任意主机
+			// （绕过 dialContextSSRF 的 IP 黑名单）。SSRF 防护只在直连下成立。
+			tr.Proxy = nil
 		})
 	return &ssrfAwareClient{
 		client: &http.Client{
