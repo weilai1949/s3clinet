@@ -45,7 +45,7 @@ func TestMigrateAsyncSSE(t *testing.T) {
 	src, _ := st.Create(&model.Account{Name: "s", Endpoint: srcS3.URL, Region: "us-east-1", AccessKey: "ak", SecretKey: "sk", Bucket: "b", PathStyle: true})
 	dst, _ := st.Create(&model.Account{Name: "d", Endpoint: dstS3.URL, Region: "us-east-1", AccessKey: "ak", SecretKey: "sk", Bucket: "b2", PathStyle: true})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	body := `{"sourceAccountId":"` + src.ID + `","sourceBucket":"b","sourceKeys":["a.txt","b.txt"],"targetAccountId":"` + dst.ID + `","targetBucket":"b2","targetPrefix":""}`
 	rr := doJSON(t, h, "POST", "/api/migrate/async", body)

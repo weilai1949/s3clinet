@@ -78,7 +78,7 @@ func TestMigrateStreamCopy(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	body := fmt.Sprintf(
 		`{"sourceAccountId":%q,"sourceBucket":"src-bucket","sourceKeys":["dir/a.txt"],"targetAccountId":%q,"targetBucket":"dst-bucket","targetPrefix":"migrated/"}`,

@@ -79,6 +79,8 @@ func (h *Handler) migrateJobStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // migrateJobEvents SSE 推送迁移进度（text/event-stream），含心跳与客户端断开感知。
+// 写超时复用 streamIdleTimeout（每次成功写出后刷新）：慢网/慢读客户端不会让连接
+// 无限挂着，活跃流量也不会被误杀。
 func (h *Handler) migrateJobEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	job, ok := h.migrateJobs.Get(id)
@@ -96,6 +98,9 @@ func (h *Handler) migrateJobEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	ch := job.Subscribe()
 	defer job.Unsubscribe(ch)
+	// 初始写超时：依赖 statusRecorder.Unwrap 触达底层 conn。
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(streamIdleTimeout))
 
 	writeSSE := func(event string, payload []byte) bool {
 		if event != "" {
@@ -112,6 +117,7 @@ func (h *Handler) migrateJobEvents(w http.ResponseWriter, r *http.Request) {
 		if _, err := w.Write([]byte("\n\n")); err != nil {
 			return false
 		}
+		_ = rc.SetWriteDeadline(time.Now().Add(streamIdleTimeout))
 		flusher.Flush()
 		return true
 	}
