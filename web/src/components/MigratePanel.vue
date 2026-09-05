@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'MigratePanel' })
 
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { toErrorMessage } from '../errors'
 
 import { s3api, subscribeMigrateEvents } from '../api'
@@ -10,6 +10,49 @@ import { fmtSize } from '../format'
 import { t, tf } from '../i18n'
 import ModalDialog from './ModalDialog.vue'
 import type { BucketItem, ObjectItem } from '../types'
+
+// 大对象列表（listAll 上限 200×1000）走窗口化渲染，避免数十万行直接 v-for 冻结页面。
+const ROW_HEIGHT = 38
+const OVERSCAN = 12
+const scrollEl = ref<HTMLElement | null>(null)
+const scrollTop = ref(0)
+const viewportH = ref(480)
+const windowed = computed(() => {
+  const total = objects.value.length
+  const start = Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - OVERSCAN)
+  const count = Math.ceil(viewportH.value / ROW_HEIGHT) + OVERSCAN * 2
+  const end = Math.min(total, start + count)
+  return {
+    start,
+    end,
+    items: objects.value.slice(start, end),
+    padTop: start * ROW_HEIGHT,
+    padBottom: Math.max(0, (total - end) * ROW_HEIGHT),
+  }
+})
+function onListScroll() {
+  if (scrollEl.value) scrollTop.value = scrollEl.value.scrollTop
+}
+function measureViewport() {
+  if (scrollEl.value) viewportH.value = scrollEl.value.clientHeight || 480
+}
+let resizeObs: ResizeObserver | undefined
+onMounted(() => {
+  measureViewport()
+  if (scrollEl.value && typeof ResizeObserver !== 'undefined') {
+    resizeObs = new ResizeObserver(measureViewport)
+    resizeObs.observe(scrollEl.value)
+  }
+})
+onBeforeUnmount(() => {
+  resizeObs?.disconnect()
+  // 组件卸载时若仍有进行中的 SSE 订阅，立即断开（避免后台 goroutine 持续推事件）。
+  if (activeUnsub) activeUnsub()
+  if (activeJobId.value) {
+    // 后端 job 不主动取消（用户离开后任务可能仍在 server 端进行；
+    // 短期同步进度由 JobRegistry reap 处理）。
+  }
+})
 
 const sourceBucket = ref('')
 const sourcePrefix = ref('')
@@ -29,6 +72,8 @@ const loadingBuckets = ref(false)
 const progress = reactive({ done: 0, total: 0 })
 const progressPct = computed(() => (progress.total ? Math.round((progress.done / progress.total) * 100) : 0))
 const activeJobId = ref('')
+// 组件级 SSE 取消器：保证 onBeforeUnmount 一定能断开正在进行的迁移事件流。
+let activeUnsub: (() => void) | undefined
 const cancelling = ref(false)
 
 /* ---- 迁移结果弹窗 ---- */
@@ -172,6 +217,7 @@ async function migrate() {
       targetPrefix: targetPrefix.value,
     })
     activeJobId.value = jobId
+    activeUnsub = undefined
     await new Promise<void>((resolve, reject) => {
       unsub = subscribeMigrateEvents(
         jobId,
@@ -185,6 +231,7 @@ async function migrate() {
         },
         reject,
       )
+      activeUnsub = unsub
     })
     const st = await s3api.migrateJobStatus(jobId)
     const r = st.result ?? { migrated: 0, failed: 0 }
@@ -205,6 +252,7 @@ async function migrate() {
     error.value = toErrorMessage(e)
   } finally {
     unsub?.()
+    activeUnsub = undefined
     activeJobId.value = ''
     cancelling.value = false
     busy.value = false
@@ -339,14 +387,20 @@ onMounted(async () => {
       <div v-if="loading" aria-busy="true" :aria-label="t('migrate.listingAria')">
         <div v-for="i in 4" :key="i" class="skel-row" />
       </div>
-      <div v-else-if="objects.length" class="tbl-wrap">
+      <div v-else-if="objects.length" ref="scrollEl" class="tbl-wrap tbl-virtual" @scroll.passive="onListScroll">
         <table class="tbl">
           <thead><tr><th style="width:30px"></th><th>Key</th><th style="width:100px">{{ t('common.size') }}</th></tr></thead>
           <tbody>
-            <tr v-for="o in objects" :key="o.key" :class="{ selected: selected.has(o.key) }">
+            <tr v-if="windowed.padTop" class="v-spacer" aria-hidden="true">
+              <td :colspan="3" :style="{ height: windowed.padTop + 'px' }" />
+            </tr>
+            <tr v-for="o in windowed.items" :key="o.key" class="v-row" :class="{ selected: selected.has(o.key) }">
               <td><input type="checkbox" :aria-label="tf('objects.selectItem', { name: o.key })" :checked="selected.has(o.key)" @change="toggle(o.key)" /></td>
               <td class="mono">{{ o.key }}</td>
               <td class="muted">{{ fmtSize(o.size) }}</td>
+            </tr>
+            <tr v-if="windowed.padBottom" class="v-spacer" aria-hidden="true">
+              <td :colspan="3" :style="{ height: windowed.padBottom + 'px' }" />
             </tr>
           </tbody>
         </table>
@@ -389,4 +443,12 @@ onMounted(async () => {
   padding: 8px 10px;
 }
 .fail-item { font-size: 12px; padding: 2px 0; }
+
+/* 虚拟滚动：固定行高 + 上下垫片让滚动条反映真实总高度。 */
+.tbl-virtual {
+  max-height: 60vh;
+  overflow: auto;
+}
+.tbl-virtual .v-row { height: 38px; }
+.tbl-virtual .v-spacer td { padding: 0; border: 0; }
 </style>
