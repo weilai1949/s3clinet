@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+
+	"github.com/weilai1949/s3clinet/server/internal/s3wrap"
 )
 
 // setHeaders 设置对象 HTTP 头/元数据（CopyObject REPLACE 到自己）。
@@ -26,6 +29,15 @@ func (h *Handler) setHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 	bucket := req.Bucket
 	if bucket, ok = h.bucketOr(w, acc, bucket); !ok {
+		return
+	}
+	// user metadata 在 API 边界校验：S3 限制的 key/value/total 长度，避免落到 S3 端以 500 返回。
+	if err := s3wrap.ValidateUserMetadata(req.Metadata); err != nil {
+		if errors.Is(err, s3wrap.ErrUserMetadataInvalid) {
+			h.writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		h.writeErr(w, http.StatusBadRequest, "invalid metadata")
 		return
 	}
 	if err := client.CopyObjectWithMeta(r.Context(), bucket, req.Key, bucket, req.Key, req.ContentType, req.Metadata); err != nil {

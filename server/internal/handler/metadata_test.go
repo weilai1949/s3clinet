@@ -61,7 +61,7 @@ func TestObjectAcl(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 公开对象：public=true、含 AllUsers 授权、返回公开链接
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/object-acl?key=public.txt", "")
@@ -172,7 +172,7 @@ func TestObjectTags(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 读取标签
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/object-tags?key=tagged.txt", "")
@@ -267,7 +267,7 @@ func TestListObjectVersions(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/versions?bucket=b&prefix=a.txt", "")
 	if rr.Code != http.StatusOK {
@@ -348,7 +348,7 @@ func TestDeleteAndRestoreVersion(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 删除指定版本
 	rr := doJSON(t, h, "DELETE", "/api/accounts/"+acc.ID+"/version?key=a.txt&versionId=v1", "")
@@ -421,7 +421,7 @@ func TestLifecycle(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 读取（带规则）
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/lifecycle?bucket=b", "")
@@ -460,5 +460,53 @@ func TestLifecycle(t *testing.T) {
 	if rr4 := doJSON(t, h, "PUT", "/api/accounts/"+acc.ID+"/lifecycle",
 		`{"rules":[{"id":"x","days":1},{"id":"x","days":2}]}`); rr4.Code != http.StatusBadRequest {
 		t.Fatalf("duplicate id = %d, want 400", rr4.Code)
+	}
+}
+
+// TestSetHeadersInvalidUserMetadata400 验证 setHeaders 在 user metadata 不合规时返回 400。
+// 避免把非法请求落到 S3 端以 500 形式回传。
+func TestSetHeadersInvalidUserMetadata400(t *testing.T) {
+	st, err := store.New(filepath.Join(t.TempDir(), "a.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, err := st.Create(&model.Account{
+		Name: "a", Endpoint: "http://127.0.0.1:1", Region: "us-east-1",
+		AccessKey: "ak", SecretKey: "sk", Bucket: "b", PathStyle: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
+	_ = httptest.NewRecorder // 兼容 import 暂未使用
+
+	// 启动假 S3（仅兜底：所有测试都不应触达，但万一校验漏掉会回 500）
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	// 改 endpoint 让请求落在假 S3（不影响 400 校验路径，因为校验先于 SDK 调用）
+	acc.Endpoint = srv.URL
+	if _, err := st.Update(acc.ID, acc); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty key", `{"key":"a","metadata":{"":"v"}}`},
+		{"non-ascii key", `{"key":"a","metadata":{"环境":"v"}}`},
+		{"key too long", `{"key":"a","metadata":{"` + strings.Repeat("k", 200) + `":"v"}}`},
+		{"value too long", `{"key":"a","metadata":{"k":"` + strings.Repeat("v", 300) + `"}}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/set-headers", c.body)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body = %s", rr.Code, rr.Body.String())
+			}
+		})
 	}
 }
