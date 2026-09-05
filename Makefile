@@ -2,11 +2,17 @@
 # 手动覆盖构建：make VERSION=v1.0.0-rc0 server-build
 VERSION ?= v1.0.0-rc1
 
-.PHONY: server server-build web web-build web-typecheck desktop-dev desktop-build test web-test test-all vet docker all dev dev-nginx restart restart-server restart-web restart-nginx restart-docker restart-all stop status
+.PHONY: server server-build tidy web web-build web-typecheck desktop-dev desktop-build test web-test test-all vet docker all dev dev-nginx restart restart-server restart-web restart-nginx restart-docker restart-all stop status
 
 # Go 后端（构建并运行）
+# 不在每次启动时跑 `go mod tidy`，避免依赖被无意识升级导致开发与 CI 漂移；
+# 依赖更新请显式执行 `make tidy`。
 server:
-	cd server && go mod tidy && go build -ldflags="-X main.version=$(VERSION)" -o s3clinet-server . && ./s3clinet-server
+	cd server && go build -ldflags="-X main.version=$(VERSION)" -o s3clinet-server . && ./s3clinet-server
+
+# 显式同步依赖（开发者升级依赖或 PR 触发 CI 前的统一入口）
+tidy:
+	cd server && go mod tidy
 
 # 构建 Go 二进制（注入版本号）
 server-build:
