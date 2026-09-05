@@ -56,7 +56,7 @@ func TestBucketInfoVersioning(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/bucket-info?bucket=b", "")
 	if rr.Code != http.StatusOK {
@@ -126,7 +126,7 @@ func TestBucketCRUD(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 创建（带权限与地域）
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/bucket", `{"name":"new-bucket","acl":"public-read"}`)
@@ -178,7 +178,7 @@ func TestDeleteBucketNotEmpty(t *testing.T) {
 		AccessKey: "ak", SecretKey: "sk", Bucket: "b", PathStyle: true,
 	})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 	rr := doJSON(t, h, "DELETE", "/api/accounts/"+acc.ID+"/bucket?name=full", "")
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("delete non-empty bucket = %d, want 409, body=%s", rr.Code, rr.Body.String())
@@ -208,7 +208,7 @@ func TestListBuckets(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/buckets", "")
 	if rr.Code != http.StatusOK {

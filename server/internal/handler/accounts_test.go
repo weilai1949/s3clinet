@@ -32,7 +32,7 @@ func TestHeathAPI(t *testing.T) {
 
 func TestHealthStoreUnavailable(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(&failPingStore{}, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(&failPingStore{}, logger, t.TempDir(), nil, "", "test", false).Routes()
 	rr := doJSON(t, h, "GET", "/api/health", "")
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("health status = %d, want 503", rr.Code)
@@ -187,7 +187,7 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Fatalf("store: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h2 := New(st, logger, dir, nil, "", "test").Routes()
+	h2 := New(st, logger, dir, nil, "", "test", false).Routes()
 	req := httptest.NewRequest("GET", "/some/route", nil)
 	rr2 := httptest.NewRecorder()
 	h2.ServeHTTP(rr2, req)
@@ -212,7 +212,7 @@ func TestSPAFallback(t *testing.T) {
 		t.Fatalf("store: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, dir, nil, "", "test").Routes()
+	h := New(st, logger, dir, nil, "", "test", false).Routes()
 
 	// 未命中的页面路由（无扩展名）→ 回退 index.html
 	req := httptest.NewRequest("GET", "/some/route", nil)
@@ -302,7 +302,7 @@ func TestAccountRUD(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// GET /api/accounts/{id}：返回脱敏密钥
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID, "")
@@ -377,7 +377,7 @@ func TestAccountConnectivityWithoutBucket(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/test", "")
 	if rr.Code != http.StatusOK {
@@ -411,7 +411,7 @@ func TestPreviewBuckets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	body := `{"name":"tmp","endpoint":"` + s3fake.URL + `","region":"us-east-1","accessKey":"ak","secretKey":"sk","pathStyle":true}`
 	rr := doJSON(t, h, "POST", "/api/accounts/preview-buckets", body)

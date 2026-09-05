@@ -51,7 +51,7 @@ func TestChangeStorageClass(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 切换当前对象到 STANDARD_IA
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/storage-class", `{"key":"a.txt","storageClass":"STANDARD_IA"}`)
@@ -120,7 +120,7 @@ func TestRestoreDeleteMarker(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/delete-marker/restore", `{"key":"deleted.txt","versionId":"dv1"}`)
 	if rr.Code != http.StatusOK {
@@ -169,7 +169,7 @@ func TestPresignGetVersion(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/presign", `{"method":"get","key":"a.txt","versionId":"v1"}`)
 	if rr.Code != http.StatusOK {

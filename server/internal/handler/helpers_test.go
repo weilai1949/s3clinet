@@ -21,7 +21,7 @@ func newTestHandler(t *testing.T, cors []string, token string) http.Handler {
 		t.Fatalf("store: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(st, logger, t.TempDir(), cors, token, "test").Routes()
+	return New(st, logger, t.TempDir(), cors, token, "test", false).Routes()
 }
 
 func doJSON(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {

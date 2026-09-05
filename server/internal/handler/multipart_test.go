@@ -64,7 +64,7 @@ func TestMultipartUpload(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// init：返回 UploadID
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/multipart/init", `{"key":"big.bin","contentType":"application/octet-stream"}`)

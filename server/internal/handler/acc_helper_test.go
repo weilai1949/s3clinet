@@ -277,7 +277,7 @@ func accNewEnv(t *testing.T, fakeURL, bucket string) *accEnv {
 // accNewHandler 用给定 store/cors/token 构造裸 Handler（静态目录为空临时目录）。
 func accNewHandler(t *testing.T, st store.AccountStore, cors []string, token string) *Handler {
 	t.Helper()
-	return New(st, accDiscardLogger(), t.TempDir(), cors, token, "test")
+	return New(st, accDiscardLogger(), t.TempDir(), cors, token, "test", false)
 }
 
 // accDiscardLogger 丢弃输出的 slog（避免测试刷屏）。

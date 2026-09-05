@@ -183,7 +183,7 @@ func TestBucketSettings(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// ---- 加密：读已配置 / 写 / 非法算法 400 / 未配置读 ---
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/bucket/encryption?bucket=b", "")

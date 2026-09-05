@@ -54,7 +54,7 @@ func TestHeadObject(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/head?bucket=b&key=hello.txt", "")
 	if rr.Code != http.StatusOK {
@@ -115,7 +115,7 @@ func TestMkdirObject(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// key 不带斜杠 → 自动补全为目录形式
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/mkdir", `{"key":"images"}`)
@@ -176,7 +176,7 @@ func TestRenameObject(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 正常重命名：copy 先于 delete，响应新 key
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/rename", `{"key":"old.txt","newKey":"dir/new.txt"}`)
@@ -257,7 +257,7 @@ func TestCopyObject(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 复制（同桶，新 key）
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/copy-object", `{"key":"a.txt","newKey":"archive/a.txt"}`)
@@ -344,7 +344,7 @@ func TestCopyMany(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 复制模式：目标 = targetPrefix + basename；bad.txt 失败但不中断其余
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/copy-objects",
@@ -451,7 +451,7 @@ func TestDeletePrefix(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/delete-prefix", `{"prefix":"dir/"}`)
 	if rr.Code != http.StatusOK {
@@ -496,7 +496,7 @@ func TestCopyManyAsyncAndDeletePrefixAsync(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/copy-objects/async",
 		`{"keys":["a.txt","b.txt"],"targetPrefix":"out/"}`)
@@ -610,7 +610,7 @@ func TestCopyPrefix(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/copy-prefix",
 		`{"prefix":"src/","targetPrefix":"dst/"}`)
@@ -676,7 +676,7 @@ func TestDownloadZip(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/download-zip",
 		`{"keys":["hello.txt","dir/nested.txt","bad.txt"]}`)
@@ -739,7 +739,7 @@ func TestProxyDownload(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	req := httptest.NewRequest("GET", "/api/accounts/"+acc.ID+"/proxy?bucket=b&key=report.csv&mode=download", nil)
 	req.Header.Set("Range", "bytes=0-99")
@@ -779,7 +779,7 @@ func TestProxyDownload(t *testing.T) {
 		Name: "fake", Endpoint: s3fake2.URL, Region: "us-east-1",
 		AccessKey: "ak", SecretKey: "sk", Bucket: "b", PathStyle: true,
 	})
-	h2 := New(st2, logger, t.TempDir(), nil, "", "test").Routes()
+	h2 := New(st2, logger, t.TempDir(), nil, "", "test", false).Routes()
 	if rr4 := doJSON(t, h2, "GET", "/api/accounts/"+acc2.ID+"/proxy?bucket=b&key=missing", ""); rr4.Code != http.StatusNotFound {
 		t.Fatalf("proxy missing = %d, want 404", rr4.Code)
 	}
@@ -798,7 +798,7 @@ func TestProxyInline(t *testing.T) {
 		AccessKey: "ak", SecretKey: "sk", Bucket: "b", PathStyle: true,
 	})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/proxy?bucket=b&key=a.png&mode=inline", "")
 	if cd := rr.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "inline;") {
 		t.Fatalf("Content-Disposition = %q, want inline", cd)
@@ -822,7 +822,7 @@ func TestProxyTextTruncate(t *testing.T) {
 		AccessKey: "ak", SecretKey: "sk", Bucket: "b", PathStyle: true,
 	})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/proxy?bucket=b&key=page.html&mode=text&maxBytes=1024", "")
 	if rr.Code != http.StatusOK {
@@ -897,7 +897,7 @@ func TestSetHeaders(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	rr := doJSON(t, h, "POST", "/api/accounts/"+acc.ID+"/set-headers",
 		`{"key":"a.txt","contentType":"text/markdown","metadata":{"owner":"alice"}}`)
@@ -955,7 +955,7 @@ func TestListObjectsAndDeleteObjects(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 列出对象：objects + storageClass + commonPrefixes
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/objects?bucket=b&prefix=&delimiter=/", "")

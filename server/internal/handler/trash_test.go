@@ -79,7 +79,7 @@ func TestTrash(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(st, logger, t.TempDir(), nil, "", "test").Routes()
+	h := New(st, logger, t.TempDir(), nil, "", "test", false).Routes()
 
 	// 回收站列表：只返回删除标记，且分页游标透传
 	rr := doJSON(t, h, "GET", "/api/accounts/"+acc.ID+"/trash?bucket=b", "")
