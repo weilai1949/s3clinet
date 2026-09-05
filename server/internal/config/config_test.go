@@ -28,7 +28,7 @@ func TestSplitList(t *testing.T) {
 
 // TestFromEnvDefaults 验证安全默认值（回环绑定、无鉴权、无 CORS 白名单）。
 func TestFromEnvDefaults(t *testing.T) {
-	for _, k := range []string{"S3C_ADDR", "S3C_DATA_DIR", "S3C_STATIC_DIR", "S3C_REGION", "S3C_TOKEN", "S3C_CORS_ORIGINS", "S3C_LOG_LEVEL", "S3C_LOG_JSON", "S3C_STORE_DRIVER", "S3C_STORE_KEY", "S3C_SHUTDOWN_TIMEOUT"} {
+	for _, k := range []string{"S3C_ADDR", "S3C_DATA_DIR", "S3C_STATIC_DIR", "S3C_REGION", "S3C_TOKEN", "S3C_CORS_ORIGINS", "S3C_LOG_LEVEL", "S3C_LOG_JSON", "S3C_STORE_DRIVER", "S3C_STORE_KEY", "S3C_SHUTDOWN_TIMEOUT", "S3C_EXPOSE_METRICS"} {
 		t.Setenv(k, "")
 	}
 	cfg := FromEnv()

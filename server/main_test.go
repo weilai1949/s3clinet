@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/weilai1949/s3clinet/server/internal/config"
 )
 
 // TestParseLevel 日志级别解析：全部分支表驱动。
@@ -52,8 +54,8 @@ func TestIsLoopbackAddr(t *testing.T) {
 		{"192.168.1.5:8080", false},
 	}
 	for _, c := range cases {
-		if got := isLoopbackAddr(c.in); got != c.want {
-			t.Fatalf("isLoopbackAddr(%q) = %v, want %v", c.in, got, c.want)
+		if got := config.IsLoopbackAddr(c.in); got != c.want {
+			t.Fatalf("config.IsLoopbackAddr(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }
@@ -332,18 +334,16 @@ func TestRunHealthcheckBadAddr(t *testing.T) {
 	}
 }
 
-// TestRunServerShortTokenWarning 短 token 仅打印警告，不阻止启动。
-func TestRunServerShortTokenWarning(t *testing.T) {
+// TestRunServerShortTokenRejects 短 token 拒绝启动返回 1。
+// 即便监听回环，短口令易被暴力猜测，配置校验须硬失败。
+func TestRunServerShortTokenRejects(t *testing.T) {
 	addr := reserveLoopbackPort(t)
 	t.Setenv("S3C_ADDR", addr)
 	t.Setenv("S3C_TOKEN", "short")
 	t.Setenv("S3C_DATA_DIR", t.TempDir())
 	t.Setenv("S3C_STORE_DRIVER", "json")
 	t.Setenv("S3C_LOG_FORMAT", "text")
-	// 不消费 health 端点直接 cancel 触发优雅关闭
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
-	if code := runServer(ctx); code != 0 {
-		t.Fatalf("runServer(short token) = %d, want 0", code)
+	if code := runServer(context.Background()); code != 1 {
+		t.Fatalf("runServer(short token) = %d, want 1 (硬失败)", code)
 	}
 }

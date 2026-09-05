@@ -143,4 +143,14 @@ func TestFromEnvAllFields(t *testing.T) {
 	if !reflect.DeepEqual(cfg.CORSOrigins, []string{"http://a", "http://b"}) {
 		t.Errorf("CORSOrigins = %v", cfg.CORSOrigins)
 	}
+	// S3C_EXPOSE_METRICS 缺省 false；S3C_EXPOSE_METRICS=1 显式开启。
+	t.Setenv("S3C_EXPOSE_METRICS", "")
+	if FromEnv().ExposeMetrics {
+		t.Errorf("ExposeMetrics default = true, want false")
+	}
+	t.Setenv("S3C_EXPOSE_METRICS", "1")
+	if !FromEnv().ExposeMetrics {
+		t.Errorf("ExposeMetrics with 1 = false, want true")
+	}
+	t.Setenv("S3C_EXPOSE_METRICS", "")
 }

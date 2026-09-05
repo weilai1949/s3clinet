@@ -1,10 +1,23 @@
 package config
 
 import (
+	"errors"
+	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
 )
+
+// MinTokenLength 是 S3C_TOKEN 允许的最小字符数。短口令易被暴力猜测，
+// 启动时硬失败（生产推荐 openssl rand -hex 32 / 64）。
+const MinTokenLength = 16
+
+// ErrShortToken 表示 S3C_TOKEN 长度低于 MinTokenLength。
+var ErrShortToken = errors.New("S3C_TOKEN too short")
+
+// ErrTokenRequiredNonLoopback 表示非回环监听必须设置 S3C_TOKEN。
+var ErrTokenRequiredNonLoopback = errors.New("S3C_TOKEN required for non-loopback listen address")
 
 // loadDotEnvFile 从指定路径加载 KEY=VALUE 到环境变量（已存在的环境变量优先）。
 // 支持注释行、引号与空行；实现为 30 行的极简解析器，不引入第三方依赖。
@@ -46,6 +59,7 @@ type Config struct {
 	StoreDriver        string   // json|sqlite|encrypted，账号存储后端
 	StoreKey           string   // encrypted 模式必填；Argon2id+盐派生（仅 S3C2）
 	ShutdownTimeoutSec int      // SIGTERM 后等待活跃连接结束的最长时间（秒）
+	ExposeMetrics      bool     // true = 暴露 /api/metrics（Prometheus 文本）；默认 false，避免公网信息泄露
 }
 
 func envOr(key, def string) string {
@@ -82,6 +96,7 @@ func FromEnv() Config {
 		StoreDriver:        envOr("S3C_STORE_DRIVER", "json"),
 		StoreKey:           os.Getenv("S3C_STORE_KEY"),
 		ShutdownTimeoutSec: envOrInt("S3C_SHUTDOWN_TIMEOUT", 30),
+		ExposeMetrics:      envTruthy("S3C_EXPOSE_METRICS"),
 	}
 }
 
@@ -103,4 +118,36 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// IsLoopbackAddr 判断监听地址是否仅绑定本机回环（127.0.0.1/::1 或未指定 host）。
+func IsLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return true // 无法解析时按回环判断，避免误报
+	}
+	return host == "127.0.0.1" || host == "::1" || host == "[::1]" || host == ""
+}
+
+// Validate 对配置做安全校验：
+//   - 短 S3C_TOKEN 拒绝启动（强制使用足够长度的随机值）；
+//   - 非回环监听必须设置 S3C_TOKEN。
+// 多 token 时以单 token 最短者判定长度。
+func (c Config) Validate() error {
+	if c.Token != "" {
+		shortest := len(c.Token)
+		for _, t := range strings.Split(c.Token, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" && len(t) < shortest {
+				shortest = len(t)
+			}
+		}
+		if shortest < MinTokenLength {
+			return fmt.Errorf("%w: got %d chars, need >= %d (建议 openssl rand -hex 32)", ErrShortToken, shortest, MinTokenLength)
+		}
+	}
+	if c.Token == "" && !IsLoopbackAddr(c.Addr) {
+		return fmt.Errorf("%w: 监听 %s 必须设置 S3C_TOKEN", ErrTokenRequiredNonLoopback, c.Addr)
+	}
+	return nil
 }

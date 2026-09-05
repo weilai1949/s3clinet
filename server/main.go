@@ -51,13 +51,9 @@ func runServer(ctx context.Context) int {
 	logger := slog.New(logHandler)
 	slog.SetDefault(logger)
 
-	// Token 过短易被暴力猜测，给出提示。
-	if cfg.Token != "" && len(cfg.Token) < 12 {
-		logger.Warn("安全警告：S3C_TOKEN 过短（<12 字符），容易被暴力猜测，建议使用更长的随机值。")
-	}
-	// 非回环监听必须开启鉴权：否则任何能触达端口的人都能读写全部账号密钥与对象。
-	if cfg.Token == "" && !isLoopbackAddr(cfg.Addr) {
-		logger.Error("拒绝启动：监听非回环地址且未设置 S3C_TOKEN。请设置 S3C_TOKEN（建议 openssl rand -hex 32）或改用 127.0.0.1 监听。")
+	// 配置安全校验：短 S3C_TOKEN 拒绝启动；非回环监听必须开启鉴权。
+	if err := cfg.Validate(); err != nil {
+		logger.Error("配置校验失败", "err", err)
 		return 1
 	}
 
@@ -69,7 +65,7 @@ func runServer(ctx context.Context) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	h := handler.New(st, logger, cfg.StaticDir, cfg.CORSOrigins, cfg.Token, version)
+	h := handler.New(st, logger, cfg.StaticDir, cfg.CORSOrigins, cfg.Token, version, cfg.ExposeMetrics)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -112,16 +108,6 @@ func runServer(ctx context.Context) int {
 	logger.Info("shutdown complete")
 	return 0
 }
-
-// isLoopbackAddr 判断监听地址是否仅绑定本机回环（127.0.0.1/::1 或未指定 host）。
-func isLoopbackAddr(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return true // 无法解析时按回环判断，避免误报
-	}
-	return host == "127.0.0.1" || host == "::1" || host == "[::1]" || host == ""
-}
-
 func parseLevel(s string) slog.Level {
 	switch s {
 	case "debug":
