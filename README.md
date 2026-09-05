@@ -62,7 +62,7 @@ docker-compose.yml   一键起 server + RustFS
 ## 环境要求
 
 - Go 1.26+
-- Node 20+ / pnpm 9+
+- Node 24+ / pnpm 9+（CI 与镜像构建均使用 24；本地 20+ 仍兼容）
 - Rust + `@tauri-apps/cli`（仅桌面端）
 - Linux 桌面端构建需 `libwebkit2gtk-4.1-dev`、`libgtk-3-dev`、`libayatana-appindicator3-dev`、`librsvg2-dev` 等
 

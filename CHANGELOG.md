@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### 安全与可靠性
+- **运行时基镜像换成 Alpine 3.20**：`debian:bookworm-slim`（~80MB、90+ 包、glibc + openssl 3.0.x）→ `alpine:3.20`（~5MB、19 个包、musl + openssl 3.3.7）。体积从 ~80MB 降到 41.5MB；Trivy 报告的 CRITICAL/HIGH 漏洞面收窄 ~80%。
 - **`/api/metrics` 默认关闭**：新增 `S3C_EXPOSE_METRICS=1` 显式开启；默认返回 404，假装端点不存在，避免公网被 scrape 运行指标。
 - **S3C_TOKEN 短口令硬失败**：长度 < 16 字符（含多 token 中最短者）直接拒绝启动，不再仅告警。
 - **S3 出站禁 HTTP(S)_PROXY**：transport 显式 `Proxy=nil`，防止环境变量代理绕过 `dialContextSSRF` 校验。
@@ -16,7 +17,8 @@
 
 ### 工程化
 - **CI 工具链对齐**：所有 workflow 的 pnpm 统一为 11；`desktop-build` 拆为「先装 tauri-cli（CI 缓存）→ 再 tauri build」，去掉 `|| true` 静默失败。
-- **Trivy 镜像扫描**：CI 在 Docker 构建后跑 `aquasecurity/trivy:0.58.1`，CRITICAL/HIGH 漏洞硬失败。
+- **Trivy 镜像扫描**：CI 在 Docker 构建后跑 `aquasecurity/trivy:0.58.1`，CRITICAL/HIGH 漏洞硬失败；新增 `.trivyignore` 与 `--ignorefile` 集中收纳可忽略的 CVE。
+- **构建层升级 Node 24**：Dockerfile 与所有 workflow 的 `node-version` 升到 24；pnpm 锁回 9.15.0（与 `package.json` 的 `packageManager` 声明一致，兼容现有 `pnpm-lock.yaml`）。
 - **配置校验函数 `Config.Validate()`**：`MinTokenLength=16`、非回环无 token 拒绝启动。
 - **`go mod tidy` 显式化**：Makefile 移除每次 `server` 启动的隐式 tidy，新增 `make tidy` 显式入口。
 - **SSE 卸载中断**：`useObjectActions` `showDetail` 加 `detailSeq` 序号守卫；`MigratePanel` 组件级 `activeUnsub`，`onBeforeUnmount` 断开进行中的 SSE。
