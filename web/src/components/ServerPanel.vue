@@ -15,7 +15,7 @@ const showForm = ref(false)
 const editingId = ref('')
 const error = ref('')
 const form = reactive({ name: '', base: '', token: '' })
-const ephemeral = ref(api.isTokenEphemeral)
+const persistent = ref(api.isTokenPersistent)
 
 const healthMap = reactive<Record<string, { ok?: boolean; err?: string; checking?: boolean; version?: string }>>({})
 
@@ -24,7 +24,7 @@ const active = computed(() => servers.value.find((s) => s.id === activeId.value)
 function reload() {
   servers.value = api.listServers()
   activeId.value = api.activeServerId()
-  ephemeral.value = api.isTokenEphemeral
+  persistent.value = api.isTokenPersistent
 }
 
 function resetForm() {
@@ -51,8 +51,8 @@ function startEdit(s: ServerProfile) {
   error.value = ''
 }
 
-function onEphemeralChange() {
-  api.setTokenEphemeral(ephemeral.value)
+function onPersistentChange() {
+  api.setTokenPersistent(persistent.value)
 }
 
 function submit() {
@@ -148,8 +148,8 @@ onMounted(() => {
     </p>
 
     <label class="field ephemeral-field" style="margin-bottom:16px; display:flex; align-items:center; gap:8px; cursor:pointer">
-      <input v-model="ephemeral" type="checkbox" @change="onEphemeralChange" />
-      <span>{{ t('server.ephemeral') }}</span>
+      <input v-model="persistent" type="checkbox" @change="onPersistentChange" />
+      <span>{{ t('server.persistent') }}</span>
     </label>
 
     <div v-if="error" class="msg err" style="margin-bottom:12px">{{ error }}</div>

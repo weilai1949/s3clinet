@@ -14,65 +14,93 @@ import type {
 } from './types'
 import { t } from './i18n'
 
-// 安全权衡说明：本存储方案把各后端地址与 Bearer Token 持久化到 localStorage，
-// 这是为「多服务端 + 记住配置」的便利性做的取舍——同源脚本可读取。若部署环境启用 S3C_TOKEN，
-// 且存在对象内容可执行（inline 代理已按 MIME 白名单收紧），建议改用 sessionStorage 或内存 +
-// 会话期重新输入；详见 README「安全说明」。
+// 安全默认：Bearer Token 存 sessionStorage（关标签即清），避免 XSS 持久窃取。
+// 显式开启「跨会话保留」后才落 localStorage（`s3c_token_persistent = '1'`）。
 //
-// Token 读写策略（不破坏既有用户）：
-// 1) 若 localStorage `s3c_token_ephemeral` === '1'，读写 sessionStorage（关标签即清，适合共享/生产主机）；
-// 2) 否则优先读 sessionStorage（若已有值），再回落 localStorage。
+// 迁移策略：从 v1.0.0-rc2 之前的版本升级时，旧版 token 在 localStorage；
+// 首次读取若 sessionStorage 为空但 localStorage 有值，自动迁移到 sessionStorage
+// 并清空 localStorage 中的副本（一次性、不破坏既有用户）。
 const LS_SERVERS = 's3c.servers'
 const LS_ACTIVE = 's3c.activeServerId'
 const LS_BASE = 's3c.apiBase'
 const LS_TOKEN = 's3c.token'
-const LS_TOKEN_EPHEMERAL = 's3c_token_ephemeral'
+const LS_TOKEN_PERSISTENT = 's3c_token_persistent'
 
-function tokenEphemeral(): boolean {
+function tokenPersistent(): boolean {
   try {
-    return localStorage.getItem(LS_TOKEN_EPHEMERAL) === '1'
+    return localStorage.getItem(LS_TOKEN_PERSISTENT) === '1'
   } catch {
     return false
   }
 }
 
 function readToken(): string {
+  // 1) 优先 sessionStorage
   try {
-    if (tokenEphemeral()) return sessionStorage.getItem(LS_TOKEN) ?? ''
     const fromSession = sessionStorage.getItem(LS_TOKEN)
     if (fromSession) return fromSession
   } catch {
     /* ignore */
   }
+  // 2) 用户显式开启「跨会话保留」→ localStorage
+  if (tokenPersistent()) {
+    try {
+      return localStorage.getItem(LS_TOKEN) ?? ''
+    } catch {
+      return ''
+    }
+  }
+  // 3) 一次性迁移：旧版本（默认 localStorage）的 token 升级时迁到 sessionStorage。
+  let fromLS = ''
   try {
-    return localStorage.getItem(LS_TOKEN) ?? ''
+    fromLS = localStorage.getItem(LS_TOKEN) ?? ''
   } catch {
     return ''
   }
+  if (fromLS) {
+    try {
+      sessionStorage.setItem(LS_TOKEN, fromLS)
+      localStorage.removeItem(LS_TOKEN)
+    } catch {
+      /* ignore */
+    }
+  }
+  return fromLS
 }
 
 function writeToken(v: string) {
   const trimmed = v.trim()
+  // 总是清空 sessionStorage（无论持久化模式如何，保证两存储不会同时存在）
   try {
-    if (tokenEphemeral()) {
-      if (trimmed) sessionStorage.setItem(LS_TOKEN, trimmed)
-      else sessionStorage.removeItem(LS_TOKEN)
-      localStorage.removeItem(LS_TOKEN) // 避免残留持久 token
-      return
-    }
-  } catch {
-    /* fall through to localStorage */
-  }
-  try {
-    if (trimmed) localStorage.setItem(LS_TOKEN, trimmed)
-    else localStorage.removeItem(LS_TOKEN)
+    if (trimmed) sessionStorage.setItem(LS_TOKEN, trimmed)
+    else sessionStorage.removeItem(LS_TOKEN)
   } catch {
     /* ignore */
+  }
+  if (tokenPersistent()) {
+    // 持久化模式：同时写 localStorage
+    try {
+      if (trimmed) localStorage.setItem(LS_TOKEN, trimmed)
+      else localStorage.removeItem(LS_TOKEN)
+    } catch {
+      /* ignore */
+    }
+  } else {
+    // 默认：清空 localStorage 的残留（避免历史值被静默恢复）
+    try {
+      localStorage.removeItem(LS_TOKEN)
+    } catch {
+      /* ignore */
+    }
   }
 }
 
 function isTauri(): boolean {
-  const w = window as any
+  // Tauri 在 window 上挂的内部标志只用于探测；用 unknown 避免 any 逃逸类型检查。
+  const w = window as unknown as {
+    __TAURI_INTERNALS__?: unknown
+    __TAURI__?: unknown
+  }
   return (
     !!w.__TAURI_INTERNALS__ ||
     !!w.__TAURI__ ||
@@ -136,32 +164,23 @@ export const api = {
   set token(v: string) {
     writeToken(v)
   },
-  /** Token 是否仅存 sessionStorage（关标签即失效）。 */
-  get isTokenEphemeral(): boolean {
-    return tokenEphemeral()
+  /** Token 是否「跨会话保留」（开启后写 localStorage）。默认 false = 仅 sessionStorage。 */
+  get isTokenPersistent(): boolean {
+    return tokenPersistent()
   },
   /**
-   * 切换临时会话：启用时把当前 token 迁入 sessionStorage 并清除 localStorage 中的 token；
-   * 关闭时迁回 localStorage 并清除 sessionStorage。
+   * 切换「跨会话保留」：开启时把 token 同时落到 localStorage；
+   * 关闭时从 localStorage 清除并保留在 sessionStorage。
    */
-  setTokenEphemeral(enabled: boolean) {
+  setTokenPersistent(enabled: boolean) {
     const current = readToken()
     try {
-      if (enabled) localStorage.setItem(LS_TOKEN_EPHEMERAL, '1')
-      else localStorage.removeItem(LS_TOKEN_EPHEMERAL)
+      if (enabled) localStorage.setItem(LS_TOKEN_PERSISTENT, '1')
+      else localStorage.removeItem(LS_TOKEN_PERSISTENT)
     } catch {
       /* ignore */
     }
     writeToken(current)
-    if (!enabled) {
-      try {
-        sessionStorage.removeItem(LS_TOKEN)
-      } catch {
-        /* ignore */
-      }
-      // writeToken（非 ephemeral）只写 localStorage；再写一次确保迁回后可读
-      writeToken(current)
-    }
   },
   get isTauri(): boolean {
     return isTauri()
@@ -355,9 +374,9 @@ export const s3api = {
   previewBuckets: (a: AccountInput) =>
     request<{ buckets: BucketItem[] }>('/api/accounts/preview-buckets', { method: 'POST', body: JSON.stringify(a) }),
 
-  listObjects: (id: string, q: Record<string, string>) => {
+  listObjects: (id: string, q: Record<string, string>, opts: { signal?: AbortSignal } = {}) => {
     const qs = new URLSearchParams(q).toString()
-    return request<ListObjectsResponse>(`/api/accounts/${id}/objects?${qs}`)
+    return request<ListObjectsResponse>(`/api/accounts/${id}/objects?${qs}`, { signal: opts.signal })
   },
   headObject: (id: string, q: Record<string, string>) => {
     const qs = new URLSearchParams(q).toString()
