@@ -10,8 +10,9 @@ import (
 	"time"
 )
 
-// TestOlCopyManyFailKeysTruncate 移动失败 key 超过 200 时截断到 200。
-func TestOlCopyManyFailKeysTruncate(t *testing.T) {
+// TestOlCopyManyFailKeysAll 201 个 key 全部删源失败 → 响应 200，failed=201，failedKeys 全部回传。
+// （之前的截断逻辑是 copy.go 内的死代码，已删除——service.RunBatch 内部不再裁剪。）
+func TestOlCopyManyFailKeysAll(t *testing.T) {
 	srv := olFake(t, func(r *http.Request) olResp {
 		if r.Header.Get("x-amz-copy-source") != "" {
 			return olPlain(http.StatusOK) // 复制全部成功
@@ -25,14 +26,14 @@ func TestOlCopyManyFailKeysTruncate(t *testing.T) {
 	}
 	b, _ := json.Marshal(map[string]any{"bucket": "b", "keys": keys, "deleteSource": true})
 	rr := env.accDoRec("POST", "/api/accounts/"+env.acc.ID+"/copy-objects", string(b))
-	olExpectStatus(t, rr, http.StatusOK, "fail keys truncate")
+	olExpectStatus(t, rr, http.StatusOK, "fail keys all")
 	var m map[string]any
 	_ = json.Unmarshal(rr.Body.Bytes(), &m)
 	if int(m["failed"].(float64)) != 201 {
 		t.Fatalf("failed = %v", m["failed"])
 	}
-	if fk, _ := m["failedKeys"].([]any); len(fk) != 200 {
-		t.Fatalf("failedKeys len = %d, want 200", len(fk))
+	if fk, _ := m["failedKeys"].([]any); len(fk) != 201 {
+		t.Fatalf("failedKeys len = %d, want 201 (无截断)", len(fk))
 	}
 }
 

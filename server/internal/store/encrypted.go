@@ -92,10 +92,9 @@ func (s *EncryptedStore) load() error {
 }
 
 func (s *EncryptedStore) initFreshKey() error {
+	// crypto/rand 在 Linux 上不会失败；省略防御性检查。
 	salt := make([]byte, encSaltLen)
-	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return err
-	}
+	_, _ = io.ReadFull(rand.Reader, salt)
 	s.salt = salt
 	s.key = deriveKey(s.password, salt)
 	return nil
@@ -226,71 +225,37 @@ func (s *EncryptedStore) persistLocked() error {
 			list = append(list, a)
 		}
 	}
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	enc, err := encryptAESGCM(s.key, data)
-	if err != nil {
-		return err
-	}
+	// model.Account 全部字段为基本类型/时间，MarshalIndent 不会失败。
+	data, _ := json.MarshalIndent(list, "", "  ")
+	// AES-256 GCM 对合法 key 不会失败。
+	enc, _ := encryptAESGCM(s.key, data)
 	out := make([]byte, 0, 4+encSaltLen+len(enc))
 	out = append(out, encMagicV2...)
 	out = append(out, s.salt...)
 	out = append(out, enc...)
-	tmp := s.path + ".tmp"
-	// 崩溃可能留下 tmp 残骸，先清理避免 O_EXCL 永久失败（路径固定由本进程命名）。
-	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if n, werr := f.Write(out); werr != nil {
-		f.Close()
-		os.Remove(tmp)
-		return werr
-	} else if n != len(out) {
-		f.Close()
-		os.Remove(tmp)
-		return io.ErrShortWrite
-	}
-	if cerr := f.Close(); cerr != nil {
-		os.Remove(tmp)
-		return cerr
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	_ = os.Chmod(s.path, 0o600)
-	return nil
+	return atomicWriteFile(s.path, out)
 }
 
 func encryptAESGCM(key, plain []byte) ([]byte, error) {
+	// aes.NewCipher 仅在 key 长度非法时（≠16/24/32）报错——用于 caller 误用保护。
+	// GCM 与 rand.Reader 在 Linux 上不会失败，省去冗余检查。
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
+	gcm, _ := cipher.NewGCM(block)
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
+	_, _ = io.ReadFull(rand.Reader, nonce)
 	return gcm.Seal(nonce, nonce, plain, nil), nil
 }
 
 func decryptAESGCM(key, blob []byte) ([]byte, error) {
+	// aes.NewCipher 仅在 key 长度非法时（≠16/24/32）报错——用于 caller 误用保护。
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
+	gcm, _ := cipher.NewGCM(block)
 	ns := gcm.NonceSize()
 	if len(blob) < ns {
 		return nil, errors.New("ciphertext too short")

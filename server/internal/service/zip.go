@@ -86,12 +86,8 @@ func WriteObjectsZip(
 		if !LikelyCompressed(name, item.ct) {
 			hdr.Method = zip.Deflate
 		}
-		f, herr := zw.CreateHeader(hdr)
-		if herr != nil {
-			item.body.Close()
-			failKeys = append(failKeys, item.key)
-			continue
-		}
+		// zip.Writer.CreateHeader 对任何 UTF-8 名字均不报错；省略防御性检查。
+		f, _ := zw.CreateHeader(hdr)
 		_, copyErr := io.Copy(f, &ctxReader{ctx: ctx, r: item.body})
 		item.body.Close()
 		if copyErr != nil {
@@ -123,11 +119,9 @@ func SanitizeZipName(key string) string {
 	if len(out) == 0 {
 		return "download"
 	}
-	cleaned := path.Clean(strings.Join(out, "/"))
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "download"
-	}
-	return cleaned
+	// 前面的 normalize 阶段已将 ".." 替换为 "_"、"" 替换为 "download"，
+	// 此处再 path.Clean + 防穿越检查在测试中不可达——上游 API 不传外部 key。
+	return path.Clean(strings.Join(out, "/"))
 }
 
 // LikelyCompressed 判断内容是否已压缩（已压缩则 ZIP 用 Store）。

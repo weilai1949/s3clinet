@@ -45,10 +45,7 @@ func MultipartStreamCopy(ctx context.Context, dst *s3wrap.Client, bucket, key, c
 	var partNum int32 = 1
 	abort := func() { _ = dst.AbortMultipartUpload(context.Background(), bucket, key, uploadID) }
 	for {
-		if err := ctx.Err(); err != nil {
-			abort()
-			return err
-		}
+		// 上游 ReadFull 不会感知 ctx；UploadPart 用 ctx；这里仅在 UploadPart 返回后判断退出。
 		n, readErr := io.ReadFull(body, buf)
 		if n > 0 {
 			etag, uerr := dst.UploadPart(ctx, bucket, key, uploadID, partNum, bytes.NewReader(buf[:n]))

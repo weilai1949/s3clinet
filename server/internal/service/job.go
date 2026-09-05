@@ -79,8 +79,14 @@ func (r *JobRegistry) Stop() {
 	}
 }
 
+// 这些变量暴露为包级变量以允许测试快速触发；生产保持默认值。
+var (
+	reapInterval      = 5 * time.Minute
+	finishSendTimeout = 5 * time.Second
+)
+
 func (r *JobRegistry) reapLoop() {
-	t := time.NewTicker(5 * time.Minute)
+	t := time.NewTicker(reapInterval)
 	defer t.Stop()
 	for {
 		select {
@@ -193,10 +199,11 @@ func (j *Job) Finish(out JobResult, status string) {
 	final := j.progress
 	j.subs = make(map[chan JobProgress]struct{})
 	j.mu.Unlock()
+
 	for _, ch := range subs {
 		select {
 		case ch <- final:
-		case <-time.After(5 * time.Second):
+		case <-time.After(finishSendTimeout):
 		}
 		close(ch)
 	}

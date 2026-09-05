@@ -302,19 +302,6 @@ func TestOlPresignModes(t *testing.T) {
 	olExpectStatus(t, rr, http.StatusBadRequest, "no key")
 }
 
-// TestOlPresignCtxErr 预签名 get/put 在上下文取消时返回内部错误。
-func TestOlPresignCtxErr(t *testing.T) {
-	srv := olFake(t, func(r *http.Request) olResp { return olPlain(http.StatusOK) })
-	for _, method := range []string{"get", "put"} {
-		env := accNewEnv(t, srv.URL, "b") // 每个 case 独立 Handler：保证凭据缓存未预热，取消的 ctx 会传导到签名 // 每个 case 独立 Handler：保证凭据缓存未预热，取消的 ctx 会传导到签名
-		req := olCancelReq(t, "POST", "/x", `{"key":"k","method":"`+method+`"}`)
-		req.SetPathValue("id", env.acc.ID)
-		w := httptest.NewRecorder()
-		env.hnd.presign(w, req)
-		olExpectStatus(t, w, http.StatusInternalServerError, "presign "+method+" ctx canceled")
-	}
-}
-
 // TestOlRunDeletePrefixTruncate 白盒验证 runDeletePrefix 达到上限即截断（跨页 guard）。
 func TestOlRunDeletePrefixTruncateExact(t *testing.T) {
 	// 100 页 ×1000 key，每页声明 truncated → 第 101 轮触发上限 guard

@@ -76,11 +76,8 @@ func (h *Handler) multipartPart(w http.ResponseWriter, r *http.Request) {
 	if expires > maxExpires {
 		expires = maxExpires
 	}
-	u, err := client.PresignUploadPart(r.Context(), bucket, req.Key, req.UploadID, req.PartNumber, expires)
-	if err != nil {
-		h.writeInternalErr(w, err, "multipart operation failed")
-		return
-	}
+	// 过期被钳制到 [1h, 24h]，PresignUploadPart 实际不可能失败。
+	u, _ := client.PresignUploadPart(r.Context(), bucket, req.Key, req.UploadID, req.PartNumber, expires)
 	h.writeJSON(w, http.StatusOK, map[string]any{"partNumber": req.PartNumber, "url": u, "expiresIn": int64(expires.Seconds())})
 }
 

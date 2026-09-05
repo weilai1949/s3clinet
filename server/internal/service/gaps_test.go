@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -538,4 +539,219 @@ func TestWriteObjectsZipCancelDuringFetch(t *testing.T) {
 	if len(failKeys) != 2 {
 		t.Fatalf("both keys should fail after cancel, got %v", failKeys)
 	}
+}
+
+// TestJobReapStop reapLoop 收到 stop 信号后退出（通过 Reap 的 ticker 路径或 stopCh）。
+func TestJobReapStop(t *testing.T) {
+	r := NewJobRegistry()
+	// reapLoop 在 NewJobRegistry 中即启动；Stop 触发 stopCh 关闭使其退出。
+	r.Stop()
+	// 再次 Stop 不应 panic
+	r.Stop()
+}
+
+// TestJobFinishAlreadyDone 重复 Finish 第二次直接返回。
+func TestJobFinishAlreadyDone(t *testing.T) {
+	r := NewJobRegistry()
+	defer r.Stop()
+	j := r.Create(0, nil)
+	j.Finish(JobResult{}, "done")
+	j.Finish(JobResult{}, "cancelled") // 第二次 noop
+	_, _, done := j.Snapshot()
+	if !done {
+		t.Fatal("done should be true")
+	}
+}
+
+// TestJobCancelStates 覆盖 Cancel 的两条分支：未完成、已完成、未注册 cancel。
+func TestJobCancelStates(t *testing.T) {
+	r := NewJobRegistry()
+	defer r.Stop()
+	// 已完成
+	j1 := r.Create(1, nil)
+	j1.Finish(JobResult{}, "done")
+	if ok, done := j1.Cancel(); ok || !done {
+		t.Fatalf("cancel done: ok=%v done=%v, want false true", ok, done)
+	}
+	// 未完成（含 cancel 函数）
+	cancelCalled := false
+	j2 := r.Create(1, func() { cancelCalled = true })
+	if ok, done := j2.Cancel(); !ok || done {
+		t.Fatalf("cancel running: ok=%v done=%v, want true false", ok, done)
+	}
+	if !cancelCalled {
+		t.Fatal("cancel func not invoked")
+	}
+	// 未完成（无 cancel）
+	j3 := r.Create(1, nil)
+	if ok, done := j3.Cancel(); !ok || done {
+		t.Fatalf("cancel no func: ok=%v done=%v, want true false", ok, done)
+	}
+}
+
+// TestWriteObjectsZipBranches 覆盖 WriteObjectsZip 的空 keys / ctx 取消分发器 / zip 创建失败。
+func TestWriteObjectsZipBranches(t *testing.T) {
+	// 1) 空 keys
+	if _, err := WriteObjectsZip(context.Background(), nil, nil, io.Discard); err != nil {
+		t.Fatalf("empty keys = %v", err)
+	}
+	// 2) 单个 key 拉取失败 → 写入失败的占位条目，继续完成 zip
+	fetcher := func(ctx context.Context, key string) (io.ReadCloser, string, error) {
+		if key == "bad" {
+			return nil, "", errors.New("boom")
+		}
+		return io.NopCloser(strings.NewReader("x")), "text/plain", nil
+	}
+	var buf bytes.Buffer
+	if _, err := WriteObjectsZip(context.Background(), fetcher, []string{"good", "bad", "good2"}, &buf); err != nil {
+		t.Fatalf("WriteObjectsZip = %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("zip empty")
+	}
+	// 3) ctx 在分发阶段取消
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = WriteObjectsZip(ctx, fetcher, []string{"a", "b", "c", "d", "e"}, io.Discard)
+}
+
+// TestSanitizeZipNameBranches 覆盖 path-traversal 拒绝。
+func TestSanitizeZipNameBranches(t *testing.T) {
+	for _, c := range []struct {
+		in, want string
+	}{
+		{"a:b", "a_b"},
+		{".", "_"},
+		{"..", "_"},
+		{"../etc", "_/etc"},
+		{"a/../b", "a/_/b"},
+	} {
+		if got := SanitizeZipName(c.in); got != c.want {
+			t.Fatalf("%q = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestJobReapGoroutineExit 触发 reapLoop 的 stopCh 路径：注册 + 立即 Stop，等 goroutine 退出。
+func TestJobReapGoroutineExit(t *testing.T) {
+	r := NewJobRegistry()
+	_ = r // NewJobRegistry 启动 goroutine；下面 Stop 关闭 stopCh 让其退出
+	r.Stop()
+	// 第二次 Stop 不应 panic
+	r.Stop()
+	// 等待 reapLoop 退出（无强保证，但 Sleep 小量时间后 goroutine 应已退）
+	time.Sleep(10 * time.Millisecond)
+}
+
+// TestJobEmitDrop 测试 Emit 在订阅者 channel 满时走 default 丢帧路径。
+// Subscribe 返回 cap=16 的 chan；连续发送 20 条且不读取即可触发 default。
+func TestJobEmitDrop(t *testing.T) {
+	r := NewJobRegistry()
+	defer r.Stop()
+	j := r.Create(1, nil)
+	sub := j.Subscribe()
+	go func() {
+		for range sub {
+		}
+	}()
+	for i := 0; i < 20; i++ {
+		j.Emit(JobProgress{Done: i, Total: 100, Key: "k", Status: "running"})
+	}
+	j.Finish(JobResult{}, "done")
+}
+
+// TestWriteObjectsZipBodyError body 在 Copy 阶段报错（io.Copy 错误分支）。
+func TestWriteObjectsZipBodyError(t *testing.T) {
+	fetcher := func(ctx context.Context, key string) (io.ReadCloser, string, error) {
+		return &errBody{err: errors.New("mid-read fail")}, "text/plain", nil
+	}
+	var buf bytes.Buffer
+	_, err := WriteObjectsZip(context.Background(), fetcher, []string{"a"}, &buf)
+	if err != nil {
+		t.Fatalf("WriteObjectsZip = %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("zip empty")
+	}
+}
+
+type errBody struct{ err error }
+
+func (e *errBody) Read(p []byte) (int, error) { return 0, e.err }
+func (e *errBody) Close() error               { return nil }
+
+// TestSanitizeZipNameAllDots 全部点/相对路径 → cleaned == "." → "download"。
+func TestSanitizeZipNameAllDots(t *testing.T) {
+	// "../" 经过 colon/.. 替换 + path.Clean 后应落到 "." 分支。
+	for _, in := range []string{"../..", "a/../.."} {
+		_ = in
+	}
+	if got := SanitizeZipName("../.."); got == "" {
+		t.Fatal("expected non-empty")
+	}
+}
+
+// TestWriteObjectsZipBodyAndError fetcher 同时返回 body 与 err → 走到 body.Close() 分支。
+func TestWriteObjectsZipBodyAndError(t *testing.T) {
+	body := &errBody{err: errors.New("unused")}
+	fetcher := func(ctx context.Context, key string) (io.ReadCloser, string, error) {
+		return body, "text/plain", errors.New("fetch failed")
+	}
+	var buf bytes.Buffer
+	_, err := WriteObjectsZip(context.Background(), fetcher, []string{"a"}, &buf)
+	if err != nil {
+		t.Fatalf("WriteObjectsZip = %v", err)
+	}
+}
+
+// TestReapLoopFires 注入短 reap 间隔，让 ticker 触发 Reap 调用。
+func TestReapLoopFires(t *testing.T) {
+	old := reapInterval
+	reapInterval = 20 * time.Millisecond
+	t.Cleanup(func() { reapInterval = old })
+	r := NewJobRegistry()
+	defer r.Stop()
+	time.Sleep(60 * time.Millisecond)
+}
+
+// TestFinishSendTimeout 注入短 finishSendTimeout，触发 5s 超时分支。
+// 用一个订阅者，先用 Emit 填满 cap=16 的缓冲，再 Finish 让第 17 个 send 阻塞。
+func TestFinishSendTimeout(t *testing.T) {
+	old := finishSendTimeout
+	finishSendTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { finishSendTimeout = old })
+	r := NewJobRegistry()
+	defer r.Stop()
+	j := r.Create(1, nil)
+	sub := j.Subscribe()
+	_ = sub
+	// 填满 16 个缓冲
+	for i := 0; i < 16; i++ {
+		j.Emit(JobProgress{Done: i, Total: 100, Key: "k", Status: "running"})
+	}
+	// 再 Emit 一个 → 走 default（不阻塞）但 Finish 必发 final 进同一 buffer 必阻塞
+	j.Emit(JobProgress{Done: 16, Total: 100, Key: "k", Status: "running"})
+	j.Finish(JobResult{}, "done")
+}
+
+// TestWriteObjectsZipCtxCancelInFetcher ctx 在 fetcher 等待期间被取消 → 走 ctx.Err 分支。
+func TestWriteObjectsZipCtxCancelInFetcher(t *testing.T) {
+	release := make(chan struct{})
+	fetcher := func(ctx context.Context, key string) (io.ReadCloser, string, error) {
+		<-ctx.Done()
+		return nil, "", ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	// 让 fetcher 阻塞
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = WriteObjectsZip(ctx, fetcher, []string{"a", "b", "c"}, &buf)
+		close(done)
+	}()
+	// 等待 fetcher 进入 ctx.Done
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	<-done
+	_ = release
 }

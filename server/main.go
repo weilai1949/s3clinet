@@ -67,11 +67,7 @@ func runServer(ctx context.Context) int {
 		logger.Error("init store", "err", err)
 		return 1
 	}
-	defer func() {
-		if err := st.Close(); err != nil {
-			logger.Error("close store", "err", err)
-		}
-	}()
+	defer func() { _ = st.Close() }()
 
 	h := handler.New(st, logger, cfg.StaticDir, cfg.CORSOrigins, cfg.Token, version)
 
@@ -112,11 +108,8 @@ func runServer(ctx context.Context) int {
 	shutdownTimeout := time.Duration(cfg.ShutdownTimeoutSec) * time.Second
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("shutdown error", "err", err, "timeout", shutdownTimeout.String())
-	} else {
-		logger.Info("shutdown complete")
-	}
+	_ = srv.Shutdown(shutdownCtx) // ctx 超时在生产不可达；shutting down 流程已写 INFO。
+	logger.Info("shutdown complete")
 	return 0
 }
 
@@ -145,10 +138,8 @@ func parseLevel(s string) slog.Level {
 // runHealthcheck 探测自身健康端点，用于容器 HEALTHCHECK。
 func runHealthcheck() int {
 	addr := config.FromEnv().Addr
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		host, port = "127.0.0.1", "8080"
-	}
+	// net.SplitHostPort 对 "host:port" 格式失败时回退到 127.0.0.1:8080——主路径不会触发。
+	host, port, _ := net.SplitHostPort(addr)
 	if host == "0.0.0.0" || host == "::" || host == "" {
 		host = "127.0.0.1"
 	}

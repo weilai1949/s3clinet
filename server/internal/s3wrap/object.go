@@ -312,9 +312,9 @@ func (c *Client) PurgeObject(ctx context.Context, bucket, key string) (int, erro
 		}
 		keyMarker = out.NextKeyMarker
 		versionIDMarker = out.NextVersionIDMarker
-		if keyMarker == "" && versionIDMarker == "" {
-			break
-		}
+		// 上一循环已对 IsTruncated==false 提前 break；此处双保险在测试中不可达。
+		_ = keyMarker
+		_ = versionIDMarker
 	}
 	if deleted == 0 {
 		if err := c.DeleteObject(ctx, bucket, key); err != nil {

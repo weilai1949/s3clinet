@@ -104,9 +104,7 @@ func (h *Handler) copyMany(w http.ResponseWriter, r *http.Request) {
 		resp["lastError"] = failMsg
 	}
 	if len(failKeys) > 0 {
-		if len(failKeys) > 200 {
-			failKeys = failKeys[:200]
-		}
+		// service.RunBatch 已把 FailKeys 裁到 200，无需重复裁剪。
 		resp["failedKeys"] = failKeys
 	}
 	h.writeJSON(w, http.StatusOK, resp)

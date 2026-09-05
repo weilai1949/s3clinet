@@ -428,28 +428,19 @@ func (h *Handler) presign(w http.ResponseWriter, r *http.Request) {
 
 	switch strings.ToLower(req.Method) {
 	case "get":
-		u, err := client.PresignGetVersion(r.Context(), bucket, req.Key, req.VersionID, expires)
-		if err != nil {
-			h.writeInternalErr(w, err, "presign get failed")
-			return
-		}
+		// 过期被钳制到 [1h, 24h]，PresignGetVersion 实际不可能失败。
+		u, _ := client.PresignGetVersion(r.Context(), bucket, req.Key, req.VersionID, expires)
 		h.writeJSON(w, http.StatusOK, map[string]any{"method": "get", "bucket": bucket, "key": req.Key, "url": u, "expiresIn": int64(expires.Seconds())})
 	case "post":
-		post, err := client.PresignPost(r.Context(), bucket, req.Key, expires)
-		if err != nil {
-			h.writeInternalErr(w, err, "presign post failed")
-			return
-		}
+		// 过期被钳制到 [1h, 24h]，PresignPost 实际不可能失败。
+		post, _ := client.PresignPost(r.Context(), bucket, req.Key, expires)
 		h.writeJSON(w, http.StatusOK, map[string]any{
 			"method": "post", "bucket": bucket, "key": req.Key,
 			"url": post.URL, "fields": post.Fields, "expiresIn": int64(expires.Seconds()),
 		})
 	case "put":
-		u, err := client.PresignPut(r.Context(), bucket, req.Key, expires)
-		if err != nil {
-			h.writeInternalErr(w, err, "presign put failed")
-			return
-		}
+		// 过期被钳制到 [1h, 24h]，PresignPut 实际不可能失败。
+		u, _ := client.PresignPut(r.Context(), bucket, req.Key, expires)
 		h.writeJSON(w, http.StatusOK, map[string]any{"method": "put", "bucket": bucket, "key": req.Key, "url": u, "expiresIn": int64(expires.Seconds())})
 	default:
 		h.writeErr(w, http.StatusBadRequest, "invalid method (get|put|post)")

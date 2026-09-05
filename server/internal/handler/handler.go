@@ -124,13 +124,8 @@ func (h *Handler) writeBadJSON(w http.ResponseWriter, err error) {
 func (h *Handler) writeInternalErr(w http.ResponseWriter, err error, publicMsg string) {
 	if err != nil {
 		if code := s3HTTPStatus(err); code != 500 {
+			// s3UserMessage 对非 nil 错误恒返回非空；此处不二次防御。
 			msg := s3UserMessage(err)
-			if msg == "" {
-				msg = publicMsg
-			}
-			if msg == "" {
-				msg = "storage operation failed"
-			}
 			h.log.Debug("s3 mapped error", "err", err, "status", code, "public", msg)
 			h.writeErr(w, code, msg)
 			return

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -178,7 +177,7 @@ func (s *Store) Close() error { return nil }
 // Ping 探测存储可用性（JSON 文件始终视为可用）。
 func (s *Store) Ping() error { return nil }
 
-// persistLocked 假定调用方已持有写锁。使用临时文件 + rename 原子写，避免崩溃导致文件损坏。
+// persistLocked 假定调用方已持有写锁。详见 atomicWriteFile。
 func (s *Store) persistLocked() error {
 	list := make([]*model.Account, 0, len(s.order))
 	for _, id := range s.order {
@@ -186,36 +185,7 @@ func (s *Store) persistLocked() error {
 			list = append(list, a)
 		}
 	}
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	// 崩溃可能留下 tmp 残骸（写后 rename 前进程退出），先清理，
-	// 否则下方 O_EXCL 永久失败。路径固定且由本进程命名，无抢占风险。
-	_ = os.Remove(tmp)
-	// 文件含明文 SecretKey，权限收紧为仅属主可读写；
-	// O_CREATE|O_EXCL 对已存在路径（含符号链接）直接失败，杜绝抢占与链接重定向。
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if n, werr := f.Write(data); werr != nil {
-		f.Close()
-		os.Remove(tmp)
-		return werr
-	} else if n != len(data) {
-		f.Close()
-		os.Remove(tmp)
-		return io.ErrShortWrite
-	}
-	if cerr := f.Close(); cerr != nil {
-		os.Remove(tmp)
-		return cerr
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	// model.Account 字段全部为基本类型/时间，MarshalIndent 不会失败。
+	data, _ := json.MarshalIndent(list, "", "  ")
+	return atomicWriteFile(s.path, data)
 }

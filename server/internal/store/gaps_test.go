@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,12 +254,25 @@ func TestGapEncryptedLifecycleAndRollback(t *testing.T) {
 }
 
 func TestGapAESGCMEdge(t *testing.T) {
+	// aes.NewCipher 仅在 key 长度非法（≠16/24/32）时报错——测试此边界。
 	if _, err := encryptAESGCM([]byte("short"), []byte("x")); err == nil {
-		t.Fatal("short key must fail")
+		t.Fatal("encrypt: 8-byte key must fail")
+	}
+	if _, err := decryptAESGCM([]byte("short"), []byte("xx")); err == nil {
+		t.Fatal("decrypt: 8-byte key must fail")
 	}
 	key := deriveKey("pw", []byte("0123456789abcdef"))
 	if _, err := decryptAESGCM(key, []byte("n")); err == nil || !strings.Contains(err.Error(), "too short") {
 		t.Fatalf("short blob = %v", err)
+	}
+	// 完整加解密往返
+	enc, err := encryptAESGCM(key, []byte("hello world"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := decryptAESGCM(key, enc)
+	if err != nil || string(dec) != "hello world" {
+		t.Fatalf("roundtrip = %q err %v", dec, err)
 	}
 }
 
@@ -535,6 +549,9 @@ func TestGapEncryptedNotFoundAndDup(t *testing.T) {
 	if _, err := st.Update("nope", gapAcc("u")); err != ErrNotFound {
 		t.Fatalf("update missing = %v", err)
 	}
+	if err := st.Delete("nope"); err != ErrNotFound {
+		t.Fatalf("delete missing = %v", err)
+	}
 	a, err := st.Create(gapAcc("d"))
 	if err != nil {
 		t.Fatal(err)
@@ -618,5 +635,139 @@ func TestGapSQLiteScanNullRow(t *testing.T) {
 	}
 	if _, err := st.List(); err == nil {
 		t.Fatal("blob created_at row must cause scan error")
+	}
+}
+
+// TestAtomicWriteFile 通过注入 OS 操作覆盖原子写全部分支。
+// 真实 OS 上无法触发「写一半失败 / close 报错 / rename 失败」等错误路径，
+// 借助包级钩子在测试里精确制造这些场景。
+func TestAtomicWriteFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// 备份并恢复注入点
+	origOpen, origWrite, origClose, origRename, origRemove :=
+		atomicOpenTmp, atomicWrite, atomicClose, atomicRename, atomicRemove
+	t.Cleanup(func() {
+		atomicOpenTmp, atomicWrite, atomicClose, atomicRename, atomicRemove =
+			origOpen, origWrite, origClose, origRename, origRemove
+	})
+
+	t.Run("happy", func(t *testing.T) {
+		p := filepath.Join(dir, "happy.bin")
+		if err := atomicWriteFile(p, []byte("hello")); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := os.ReadFile(p)
+		if string(got) != "hello" {
+			t.Fatalf("got %q", got)
+		}
+		if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("perm = %v err %v", fi.Mode().Perm(), err)
+		}
+	})
+
+	t.Run("open fail", func(t *testing.T) {
+		atomicOpenTmp = func(string) (*os.File, error) { return nil, errors.New("boom") }
+		if err := atomicWriteFile(filepath.Join(dir, "x"), []byte("a")); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("write fail", func(t *testing.T) {
+		atomicOpenTmp = origOpen
+		atomicWrite = func(*os.File, []byte) (int, error) { return 0, errors.New("disk full") }
+		atomicRemove = origRemove
+		p := filepath.Join(dir, "wf.bin")
+		if err := atomicWriteFile(p, []byte("x")); err == nil {
+			t.Fatal("expected write error")
+		}
+		if _, err := os.Stat(p + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("tmp should be cleaned, stat err = %v", err)
+		}
+	})
+
+	t.Run("short write", func(t *testing.T) {
+		atomicOpenTmp = origOpen
+		atomicWrite = func(_ *os.File, data []byte) (int, error) { return len(data) - 1, nil }
+		if err := atomicWriteFile(filepath.Join(dir, "sw.bin"), []byte("xyz")); err == nil {
+			t.Fatal("expected short write")
+		}
+	})
+
+	t.Run("close fail", func(t *testing.T) {
+		atomicOpenTmp = origOpen
+		atomicWrite = origWrite
+		atomicClose = func(*os.File) error { return errors.New("close err") }
+		if err := atomicWriteFile(filepath.Join(dir, "cf.bin"), []byte("x")); err == nil {
+			t.Fatal("expected close error")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "cf.bin.tmp")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("tmp should be cleaned, stat err = %v", err)
+		}
+	})
+
+	t.Run("rename fail", func(t *testing.T) {
+		atomicOpenTmp = origOpen
+		atomicWrite = origWrite
+		atomicClose = origClose
+		atomicRename = func(_, _ string) error { return errors.New("rename fail") }
+		if err := atomicWriteFile(filepath.Join(dir, "rf.bin"), []byte("x")); err == nil {
+			t.Fatal("expected rename error")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "rf.bin.tmp")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("tmp should be cleaned, stat err = %v", err)
+		}
+	})
+}
+
+// TestGapEncryptedDeleteSuccess 正常 Delete 走通（既有的 Delete 测试都建立在 nuke 之上，
+// 覆盖的是「持久化失败」分支；此处补正常成功路径）。
+func TestGapEncryptedDeleteSuccess(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewEncrypted(filepath.Join(dir, "a.enc"), "pw-very-long")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.Create(gapAcc("to-delete"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Delete(a.ID); err != nil {
+		t.Fatalf("Delete success: %v", err)
+	}
+	if _, err := st.Get(a.ID); err != ErrNotFound {
+		t.Fatalf("Get after Delete = %v, want NotFound", err)
+	}
+	list, _ := st.List()
+	if len(list) != 0 {
+		t.Fatalf("list after delete = %d", len(list))
+	}
+}
+
+// TestGapSQLiteUpdatePreservesSecretKey 显式设置非掩码 SecretKey 时应原样保留。
+func TestGapSQLiteUpdatePreservesSecretKey(t *testing.T) {
+	st, err := openSQLite(filepath.Join(t.TempDir(), "accounts.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	a, err := st.Create(gapAcc("u"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	upd := gapAcc("u2")
+	upd.SecretKey = "new-secret-value"
+	if _, err := st.Update(a.ID, upd); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := st.Get(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.SecretKey != "new-secret-value" {
+		t.Fatalf("SecretKey persisted = %q, want new-secret-value", raw.SecretKey)
 	}
 }

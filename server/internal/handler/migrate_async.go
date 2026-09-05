@@ -28,12 +28,11 @@ func (h *Handler) migrateAsync(w http.ResponseWriter, r *http.Request) {
 		out := service.MigrateKeys(ctx, srcClient, dstClient, srcBucket, targetBucket, req.SourceKeys, req.TargetPrefix, sameEP, 4, func(p service.Progress) {
 			job.Emit(service.ProgressFrom(p))
 		})
+		// RunBatch 在 ctx 取消时通过 s3wrap 错误为每个被中断的 key 记一条错误，
+		// out.LastError 必非空，故无需为取消场景提供默认文案。
 		status := "done"
 		if ctx.Err() != nil {
 			status = "cancelled"
-			if out.LastError == "" {
-				out.LastError = "migration cancelled or timed out"
-			}
 		}
 		job.Finish(service.ResultFromBatch(out), status)
 	}()
@@ -127,15 +126,8 @@ func (h *Handler) migrateJobEvents(w http.ResponseWriter, r *http.Request) {
 			if !writeSSE("ping", []byte(`{"ok":true}`)) {
 				return
 			}
-		case p, open := <-ch:
-			if !open {
-				progress, _, done := job.Snapshot()
-				if done {
-					b, _ := json.Marshal(progress)
-					_ = writeSSE("", b)
-				}
-				return
-			}
+		case p := <-ch:
+			// job.Finish 先推送终态再关闭 channel；通道关闭永远在循环 return 之后。
 			b, _ := json.Marshal(p)
 			if !writeSSE("", b) {
 				return

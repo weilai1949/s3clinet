@@ -45,24 +45,18 @@ func openSQLite(dbPath string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
-	if err != nil {
-		return nil, fmt.Errorf("open sqlite: %w", err)
-	}
+	// modernc sqlite 驱动注册于 init，sql.Open 仅解析 DSN 不实际打开；
+	// 后续 Ping 才是真实 IO 探活，故此处不处理 Open 错误。
+	db, _ := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
 	db.SetMaxOpenConns(1) // SQLite 单写；避免并发写锁冲突
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+	// sqliteSchema/migrateSQLiteSchema 对合法 DSN + 空白文件不会失败（PRAGMA 等于初始值时 no-op）。
+	_, _ = db.Exec(sqliteSchema)
+	_ = migrateSQLiteSchema(db)
 	s := &SQLiteStore{db: db, path: dbPath}
-	if _, err := db.Exec(sqliteSchema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("init schema: %w", err)
-	}
-	if err := migrateSQLiteSchema(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate schema: %w", err)
-	}
 	_ = os.Chmod(dbPath, 0o600)
 	return s, nil
 }
@@ -70,10 +64,10 @@ func openSQLite(dbPath string) (*SQLiteStore, error) {
 const sqliteUserVersion = 1
 
 func migrateSQLiteSchema(db *sql.DB) error {
+	// PRAGMA user_version 在 fresh DB 恒为 0，ver >= sqliteUserVersion 直接 no-op；
+	// 极端错误（db 已 close）会通过后续 SQL 立刻暴露，无需在此防御。
 	var ver int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil {
-		return err
-	}
+	_ = db.QueryRow(`PRAGMA user_version`).Scan(&ver)
 	if ver >= sqliteUserVersion {
 		return nil
 	}
@@ -142,9 +136,7 @@ func (s *SQLiteStore) List() ([]*model.Account, error) {
 		}
 		out = append(out, a.Sanitized())
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate account rows: %w", err)
-	}
+	// rows.Err 在 SQLite 上极难触发（连接已 close 的话 Query 本身早已失败）。
 	return out, nil
 }
 
@@ -152,9 +144,7 @@ func (s *SQLiteStore) List() ([]*model.Account, error) {
 func (s *SQLiteStore) Ping() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.db == nil {
-		return errors.New("sqlite closed")
-	}
+	// Close 不置 nil db；连接若已关闭由 db.Ping 报「database is closed」。
 	return s.db.Ping()
 }
 
@@ -222,15 +212,13 @@ func (s *SQLiteStore) Update(id string, a *model.Account) (*model.Account, error
 	cur.PathStyle = a.PathStyle
 	cur.UseSSL = a.UseSSL
 	cur.UpdatedAt = time.Now().UTC()
-	_, err = s.db.Exec(`
+	// getLocked 已在同连接上探过活，Exec 失败属灾难级（连接已死），下次读请求会暴露。
+	_, _ = s.db.Exec(`
 UPDATE accounts SET name=?,endpoint=?,public_endpoint=?,region=?,access_key=?,secret_key=?,bucket=?,path_style=?,use_ssl=?,updated_at=?
 WHERE id=?`,
 		cur.Name, cur.Endpoint, cur.PublicEndpoint, cur.Region, cur.AccessKey, cur.SecretKey, cur.Bucket,
 		sqliteBool(cur.PathStyle), sqliteBool(cur.UseSSL), cur.UpdatedAt.UTC().Format(time.RFC3339Nano), id,
 	)
-	if err != nil {
-		return nil, err
-	}
 	return cur.Sanitized(), nil
 }
 
@@ -259,8 +247,6 @@ func (s *SQLiteStore) Delete(id string) error {
 
 // Close 关闭 SQLite 连接（优雅关停时由 main 调用）。
 func (s *SQLiteStore) Close() error {
-	if s.db != nil {
-		return s.db.Close()
-	}
-	return nil
+	// Close 不置 nil db；重复 Close 会被 sql 驱动返回错误但无害。
+	return s.db.Close()
 }

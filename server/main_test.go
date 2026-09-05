@@ -331,3 +331,19 @@ func TestRunHealthcheckBadAddr(t *testing.T) {
 		t.Fatalf("runHealthcheck(bad addr) = %d, want 1", got)
 	}
 }
+
+// TestRunServerShortTokenWarning 短 token 仅打印警告，不阻止启动。
+func TestRunServerShortTokenWarning(t *testing.T) {
+	addr := reserveLoopbackPort(t)
+	t.Setenv("S3C_ADDR", addr)
+	t.Setenv("S3C_TOKEN", "short")
+	t.Setenv("S3C_DATA_DIR", t.TempDir())
+	t.Setenv("S3C_STORE_DRIVER", "json")
+	t.Setenv("S3C_LOG_FORMAT", "text")
+	// 不消费 health 端点直接 cancel 触发优雅关闭
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
+	if code := runServer(ctx); code != 0 {
+		t.Fatalf("runServer(short token) = %d, want 0", code)
+	}
+}

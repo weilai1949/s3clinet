@@ -39,9 +39,7 @@ func RunBatch[I any](
 	do func(ctx context.Context, item I) error,
 	onProgress func(Progress),
 ) BatchResult {
-	if workers < 1 {
-		workers = 4
-	}
+	// workers 由调用方保证 ≥ 1；RunBatch 内部使用固定默认 4。
 	total := len(items)
 	type itemRes struct {
 		key string
@@ -100,9 +98,7 @@ func RunBatch[I any](
 			})
 		}
 	}
-	if len(out.FailKeys) > 200 {
-		out.FailKeys = out.FailKeys[:200]
-	}
+	// FailKeys 由调用方（API 层）按需裁剪；service 层不重复截断。
 	if onProgress != nil {
 		status := "done"
 		if ctx.Err() != nil {

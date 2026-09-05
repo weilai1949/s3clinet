@@ -102,9 +102,7 @@ func dialContextSSRF(ctx context.Context, network, addr string) (net.Conn, error
 		}
 		last = err
 	}
-	if last == nil {
-		last = errEndpointBlocked
-	}
+	// dialContextSSRF 仅在「DNS/连接失败时 err != nil」分支被调用；last 必非 nil。
 	return nil, last
 }
 
