@@ -57,7 +57,7 @@ func (m *miniStore) Delete(id string) error {
 
 func newHandlerWithStore(t *testing.T, st store.AccountStore) http.Handler {
 	t.Helper()
-	h := New(st, slog.New(slog.NewTextHandler(io.Discard, nil)), t.TempDir(), nil, "", "test")
+	h := New(st, slog.New(slog.NewTextHandler(io.Discard, nil)), t.TempDir(), nil, "", "test", false)
 	return h.Routes()
 }
 
@@ -349,6 +349,13 @@ func TestGapValidBucketName(t *testing.T) {
 		{"underscore mid", "a__b", false},
 		{"special", "a$b", false},
 		{"upper digit mix", "aB1", false},
+		{"leading dash", "-abc", false},
+		{"trailing dash", "abc-", false},
+		{"leading dot", ".abc", false},
+		{"trailing dot", "abc.", false},
+		{"consecutive dots", "a..b", false},
+		{"dot then dash", "a.-b", false},
+		{"dash then dot", "a-.b", false},
 	}
 	for _, c := range cases {
 		if got := validBucketName(c.in); got != c.want {

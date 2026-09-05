@@ -156,16 +156,30 @@ func (h *Handler) previewBuckets(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"buckets": buckets})
 }
 
-// validBucketName 校验 S3 桶命名规则（简化版）。
+// validBucketName 校验 S3 桶命名规则（DNS 合规的子集）。
+//   - 3–63 字符
+//   - 仅小写字母、数字、连字符、点
+//   - 首尾必须是小写字母或数字
+//   - 不允许连续两个点（保留 ..）
+//   - 不允许以连字符相邻（保留 -. / .-）
+// 完整 S3 规则还有"禁止 IP 形式"和"禁止 xn-- 前缀"等更细边界，违反会由 S3 端拒绝。
 func validBucketName(name string) bool {
 	if len(name) < 3 || len(name) > 63 {
 		return false
 	}
-	for _, r := range name {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.' {
-			continue
+	for i, r := range name {
+		allowed := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '.'
+		if !allowed {
+			return false
 		}
-		return false
+		if i == 0 || i == len(name)-1 {
+			if r == '-' || r == '.' {
+				return false
+			}
+		}
+		if i > 0 && (r == '.' || r == '-') && (name[i-1] == '.' || name[i-1] == '-') {
+			return false
+		}
 	}
 	return true
 }
