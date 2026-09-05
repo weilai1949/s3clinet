@@ -25,7 +25,9 @@ export default tseslint.config(
     },
     rules: {
       'vue/multi-word-component-names': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
+      // 由 warn 而非 error：保留 ESLint 通过门槛的同时提醒。
+      // 全量收紧需逐文件重写为具体类型；新增代码请避免 any。
+      '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-unused-vars': 'off',
       // TS / vue-tsc already check undefined identifiers; browser globals trip no-undef in .vue scripts.
