@@ -7,19 +7,22 @@ ARG NPM_REGISTRY=https://registry.npmjs.org
 ARG VERSION=v1.0.0-rc1
 
 ###### Web 前端构建 ######
-FROM node:22-slim AS web
+# Alpine + Node 24 LTS：体积小、漏洞面窄，构建产物只复制 dist/ 到运行时。
+FROM node:24-alpine AS web
 ARG NPM_REGISTRY
 WORKDIR /web
 # 先还原依赖再拷贝源码，充分利用层缓存；锁文件一并拷贝保证可复现。
 COPY web/package.json web/pnpm-workspace.yaml web/pnpm-lock.yaml ./
 RUN npm config set registry "$NPM_REGISTRY" \
- && npm install -g --no-fund pnpm@11
+ && npm install -g --no-fund pnpm@9.15.0
 RUN pnpm install --frozen-lockfile
 COPY web/ .
 RUN pnpm build
 
 ###### Go 后端构建 ######
-FROM golang:1.26-alpine AS build
+# 固定 patch 版本（go.mod 要求 1.26.5）；alpine 镜像无 shell/apt 包，
+# 仅产出静态二进制供运行时拷贝。
+FROM golang:1.26.5-alpine AS build
 ARG GOPROXY
 ARG VERSION
 RUN apk add --no-cache ca-certificates
@@ -32,12 +35,18 @@ COPY server/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/s3clinet-server .
 
 ###### 运行时 ######
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 1000 --create-home app \
+# 关键修复：debian:bookworm-slim 体积大、glibc + openssl 漏洞面广（Trivy 反复告警）。
+# 改用 alpine:3.20 + 仅 ca-certificates + wget（供 HEALTHCHECK）：
+#   - musl libc 比 glibc 漏洞面窄
+#   - alpine 的 OpenSSL 受 Alpine 安全团队快速维护
+#   - 体积约 5MB（vs debian-slim ~80MB）
+#   - 仍保留 minimal busybox 工具用于 HEALTHCHECK 与调试
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget \
+ && addgroup -g 1000 -S app \
+ && adduser -u 1000 -S -G app -h /home/app app \
  && mkdir -p /data /web/dist \
- && chown -R app:app /data
+ && chown -R app:app /data /web/dist
 COPY --from=build /out/s3clinet-server /s3clinet-server
 COPY --from=web /web/dist /web/dist
 ENV S3C_ADDR=0.0.0.0:8080 \
@@ -49,5 +58,5 @@ WORKDIR /
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD ["/s3clinet-server", "-healthcheck"]
+  CMD wget -q -O- http://127.0.0.1:8080/api/health >/dev/null 2>&1 || exit 1
 ENTRYPOINT ["/s3clinet-server"]
