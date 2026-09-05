@@ -217,6 +217,11 @@ func (h *Handler) renameObject(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"renamed": req.NewKey})
 }
 
+// maxDeleteKeys 限制单次 delete-objects 的 key 数。
+// S3 DeleteObjects 本身最大 1000 一次；此处不放大以保持「一次 HTTP 一次 SDK 调用」的简单契约。
+// 大量删除请走 delete-prefix（异步 + 自动分页）。
+const maxDeleteKeys = 1000
+
 // deleteObjects 批量删除。
 func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request) {
 	client, acc, ok := h.accountClient(w, r)
@@ -233,6 +238,10 @@ func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Keys) == 0 {
 		h.writeErr(w, http.StatusBadRequest, "keys are required")
+		return
+	}
+	if len(req.Keys) > maxDeleteKeys {
+		h.writeErr(w, http.StatusBadRequest, "too many keys (max 1000); use delete-prefix for larger batches")
 		return
 	}
 	bucket := req.Bucket

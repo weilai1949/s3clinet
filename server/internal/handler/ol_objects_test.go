@@ -364,3 +364,28 @@ func olListPagesFake(t *testing.T, pages []string) *httptest.Server {
 }
 
 // olListPagesFake 假 S3：按调用次序返回预置 list 页（越界 → 错误）；delete 一律成功。
+
+// TestOlDeleteObjectsTooManyKeys 1001 个 key 触发 400；少量走通。
+func TestOlDeleteObjectsTooManyKeys(t *testing.T) {
+	srv := olFake(t, func(r *http.Request) olResp {
+		if r.Method == http.MethodPost && r.URL.Query().Has("delete") {
+			return olXML(http.StatusOK, `<?xml version="1.0"?><DeleteResult/>`)
+		}
+		return olErr(http.StatusForbidden, "x")
+	})
+	env := accNewEnv(t, srv.URL, "b")
+	// 1) 1000 个 key：成功
+	keys := make([]string, 1000)
+	for i := range keys {
+		keys[i] = "k" + string(rune('0'+i%10))
+	}
+	body, _ := json.Marshal(map[string]any{"bucket": "b", "keys": keys})
+	rr := env.accDoRec("POST", "/api/accounts/"+env.acc.ID+"/delete", string(body))
+	olExpectStatus(t, rr, http.StatusOK, "1000 keys")
+
+	// 2) 1001 个 key：400
+	keys = append(keys, "extra")
+	body, _ = json.Marshal(map[string]any{"bucket": "b", "keys": keys})
+	rr = env.accDoRec("POST", "/api/accounts/"+env.acc.ID+"/delete", string(body))
+	olExpectStatus(t, rr, http.StatusBadRequest, "1001 keys")
+}
