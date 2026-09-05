@@ -118,6 +118,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Trivy image scan (CRITICAL/HIGH 失败门禁)
+        # 直接使用 aquasecurity/trivy 官方镜像避免第三方 action 供应链风险；
+        # 扫描本地刚构建的镜像（未 push），fail on CRITICAL/HIGH。
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasecurity/trivy:0.58.1 image \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --no-progress \
+            --ignore-unfixed \
+            s3clinet/server:ci
+
   desktop:
     name: Desktop（cargo check）
     runs-on: ubuntu-latest
@@ -148,7 +161,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
-          version: 9
+          version: 11
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -161,9 +174,11 @@ jobs:
       - name: Build web
         working-directory: web
         run: pnpm install --frozen-lockfile && pnpm build
+      - name: Install tauri-cli (cached across runs)
+        working-directory: desktop
+        run: cargo install tauri-cli --version "^2" --locked
       - name: tauri build --no-bundle
         working-directory: desktop
         run: |
-          pnpm install --frozen-lockfile || true
-          cargo install tauri-cli --version "^2" --locked || true
+          pnpm install --frozen-lockfile
           cd src-tauri && cargo tauri build --no-bundle
