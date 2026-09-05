@@ -4,6 +4,32 @@
 
 ## [Unreleased]
 
+### 安全与可靠性
+- **`/api/metrics` 默认关闭**：新增 `S3C_EXPOSE_METRICS=1` 显式开启；默认返回 404，假装端点不存在，避免公网被 scrape 运行指标。
+- **S3C_TOKEN 短口令硬失败**：长度 < 16 字符（含多 token 中最短者）直接拒绝启动，不再仅告警。
+- **S3 出站禁 HTTP(S)_PROXY**：transport 显式 `Proxy=nil`，防止环境变量代理绕过 `dialContextSSRF` 校验。
+- **桶名校验收紧**：拒绝首尾为 `.`/`-`、连续 `..`/`.-`/`-.`。
+- **user metadata 边界 400**：键值长度 / 字节总长超 S3 限制直接 400，不再落到 S3 端以 500 返回。
+- **delete-objects 单次 ≤1000**：与 S3 `DeleteObjects` 上限对齐；超限返回 400 并提示走 `delete-prefix`。
+- **migrate SSE 写超时**：复用 `streamIdleTimeout`（每次成功写出后刷新），慢客户端不会让连接无限挂着。
+- **store 失败回滚**：`EncryptedStore.Update` 持久化失败回滚内存；`SQLiteStore.Update` 显式传播 `Exec` 错误；`JSON Store.Update` 补测。
+
+### 工程化
+- **CI 工具链对齐**：所有 workflow 的 pnpm 统一为 11；`desktop-build` 拆为「先装 tauri-cli（CI 缓存）→ 再 tauri build」，去掉 `|| true` 静默失败。
+- **Trivy 镜像扫描**：CI 在 Docker 构建后跑 `aquasecurity/trivy:0.58.1`，CRITICAL/HIGH 漏洞硬失败。
+- **配置校验函数 `Config.Validate()`**：`MinTokenLength=16`、非回环无 token 拒绝启动。
+- **`go mod tidy` 显式化**：Makefile 移除每次 `server` 启动的隐式 tidy，新增 `make tidy` 显式入口。
+- **SSE 卸载中断**：`useObjectActions` `showDetail` 加 `detailSeq` 序号守卫；`MigratePanel` 组件级 `activeUnsub`，`onBeforeUnmount` 断开进行中的 SSE。
+- **列表请求 AbortController**：`useObjectBrowser.load` 每次新请求取消旧的；`onBeforeUnmount` 取消进行中的 fetch。
+
+### 前端
+- **Token 默认 sessionStorage**：`s3c_token_persistent='1'` 显式开启才写 localStorage；旧版本 localStorage 遗留值首次读取时自动迁移到 sessionStorage 并清空 localStorage 副本。
+- **MigratePanel 虚拟滚动**：`listAll` 上限 200×1000 不再 `<tr v-for>` 全量渲染，按 ObjectList 同款窗口化方案。
+- **showDetail seq 守卫**：快速切对象时过期响应丢弃。
+- **lint 收紧**：`@typescript-eslint/no-explicit-any` 由 off 改 warn；新增 `isTauri` 类型明确化。
+- **集中式 `requireAccId()`**：`useObjectActions` 13 处 `ctx.account.value!.id` 收敛为单一异常入口。
+
+
 ## [v1.0.0-rc1] - 2026-09-02
 
 相对 `v1.0.0-rc0`：桌面安装包由 CI 在打 tag 时交叉构建并挂到 GitHub Release。

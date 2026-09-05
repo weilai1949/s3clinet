@@ -76,14 +76,15 @@ docker-compose.yml   一键起 server + RustFS
 | `S3C_DATA_DIR` | `./data` | 数据目录（`accounts.json` / `accounts.db` / `accounts.json.enc`） |
 | `S3C_STATIC_DIR` | `./web/dist` | Web 静态资源目录 |
 | `S3C_REGION` | `us-east-1` | 账号缺省 region |
-| `S3C_TOKEN` | 空 | 非空时所有 `/api/*` 需要 `Authorization: Bearer <token>`；**非回环监听时必填**（建议 `openssl rand -hex 32`）；逗号分隔支持多 token 轮换 |
+| `S3C_TOKEN` | 空 | 非空时所有 `/api/*` 需要 `Authorization: Bearer <token>`；**非回环监听时必填**（建议 `openssl rand -hex 32`，最低 16 字符）；逗号分隔支持多 token 轮换（以最短者判定长度） |
 | `S3C_CORS_ORIGINS` | 空 | CORS 白名单；留空=仅同源 + localhost/127.0.0.1/tauri |
 | `S3C_LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error` |
 | `S3C_SHUTDOWN_TIMEOUT` | `30` | 收到 SIGTERM 后等待活跃连接结束的最长时间（秒） |
 | `S3C_STORE_DRIVER` | `json` | 账号存储：`json` / `sqlite` / `encrypted` |
 | `S3C_STORE_KEY` | 空 | `encrypted` 模式必填；Argon2id+盐派生，文件格式仅 `S3C2` |
+| `S3C_EXPOSE_METRICS` | 空 | `1`/`true`/`yes`/`on` 时暴露 `GET /api/metrics`（Prometheus 文本）；默认 404，避免公网被 scrape |
 
-**安全默认值**：回环绑定 + CORS 白名单 + 可选鉴权。非回环（如 `0.0.0.0`）未设 `S3C_TOKEN` 时进程**拒绝启动**。生产推荐 `docker compose -f docker-compose.prod.yml`（强制 token + encrypted，无内置 RustFS）。
+**安全默认值**：回环绑定 + CORS 白名单 + 可选鉴权 + 短 token 拒绝启动 + 指标端点默认隐藏。非回环（如 `0.0.0.0`）未设 `S3C_TOKEN` 时进程**拒绝启动**。生产推荐 `docker compose -f docker-compose.prod.yml`（强制 token + encrypted，无内置 RustFS）。
 
 ## 快速开始
 
@@ -200,7 +201,10 @@ CI：GitHub Actions（`.github/workflows/ci.yml`）在 push/PR 时运行 Go vet/
 
 - 账号 SecretKey 仅服务端存储，对外返回**脱敏**（`******`）。
 - 前端直传使用短时效 v4 签名 URL，密钥不暴露给前端。
-- 默认回环绑定、CORS 白名单、可选 Bearer 鉴权；生产部署请参考上文安全建议。
+- 默认回环绑定、CORS 白名单、可选 Bearer 鉴权；S3C_TOKEN 短口令（< 16 字符）拒绝启动。
+- `/api/metrics` 默认 404，scrape 需显式 `S3C_EXPOSE_METRICS=1`。
+- 前端 Bearer Token 默认存 sessionStorage（关标签即清）；勾选「跨会话保留」才写 localStorage。
+- 生产部署请参考上文安全建议。
 
 ## License
 
