@@ -192,6 +192,8 @@ export function useObjectBrowser(bindings: KeyBindings) {
 
   // 导航序号：进入目录/切桶/重置时 +1；过期响应直接丢弃，避免快速导航串数据。
   const loadSeq = ref(0)
+  // 进行中的列表请求 AbortController：每次新 load 取消旧的；卸载时取消所有。
+  let loadCtrl: AbortController | undefined
 
   /** KeepAlive 下仅在面板可见时响应账号切换，避免后台 Tab 重复拉取。 */
   const panelActive = ref(false)
@@ -214,6 +216,10 @@ export function useObjectBrowser(bindings: KeyBindings) {
     if (reset) loadingAll.value = false
     loading.value = true
     error.value = ''
+    // 取消上一次仍在飞的请求，避免过期响应浪费带宽。
+    if (loadCtrl) loadCtrl.abort()
+    const ctrl = new AbortController()
+    loadCtrl = ctrl
     try {
       const q: Record<string, string> = {
         bucket: currentBucket.value,
@@ -222,7 +228,7 @@ export function useObjectBrowser(bindings: KeyBindings) {
         maxKeys: '100',
       }
       if (!reset && nextToken.value) q.continuationToken = nextToken.value
-      const res = await s3api.listObjects(acc.id, q)
+      const res = await s3api.listObjects(acc.id, q, { signal: ctrl.signal })
       if (seq !== loadSeq.value) return // 过期响应，丢弃
       if (reset) {
         objects.value = res.objects ?? []
@@ -465,6 +471,8 @@ export function useObjectBrowser(bindings: KeyBindings) {
     window.removeEventListener('keydown', onGlobalKey)
     window.removeEventListener('blur', closeCtx)
     window.removeEventListener('scroll', closeCtx, true)
+    // 卸载时取消仍在飞的列表请求，避免组件销毁后 fetch 回调修改已释放的 ref。
+    if (loadCtrl) loadCtrl.abort()
   })
 
   return {

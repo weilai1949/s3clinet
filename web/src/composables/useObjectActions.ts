@@ -38,6 +38,18 @@ export interface DestCtx {
 
 export function useObjectActions(ctx: ObjectBrowserCtx) {
   const detail = ref<ObjectMeta | null>(null)
+  const detailSeq = ref(0) // showDetail 序号守卫，过期响应丢弃
+
+  /**
+   * 解析当前账号 id。所有"非空断言"集中在这里：
+   * 业务上 useObjectActions 仅在面板活跃且有账号时被调用；
+   * 一旦没有账号（被卸载 / 切走），把异常交给上游 toast 处理而不是悄悄断言。
+   */
+  function requireAccId(): string {
+    const id = ctx.account.value?.id
+    if (!id) throw new Error('no active account')
+    return id
+  }
 
   /* ---- 编辑对象 HTTP 头（控制台共性：设置 Content-Type / 自定义元数据） ---- */
   const headersOpen = ref(false)
@@ -127,7 +139,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     })
     if (!ok) return
     try {
-      const r = await s3api.deleteObjects(ctx.account.value!.id, { bucket: ctx.currentBucket.value, keys })
+      const r = await s3api.deleteObjects(requireAccId(), { bucket: ctx.currentBucket.value, keys })
       toast(tf('objects.toastDeleted', { n: r.deleted }))
       ctx.selected.value = new Set()
       await ctx.load(true)
@@ -143,7 +155,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     })
     if (!ok) return
     try {
-      const r = await s3api.deleteObjects(ctx.account.value!.id, { bucket: ctx.currentBucket.value, keys: [key] })
+      const r = await s3api.deleteObjects(requireAccId(), { bucket: ctx.currentBucket.value, keys: [key] })
       toast(tf('objects.toastDeleted', { n: r.deleted }))
       ctx.selected.value = new Set()
       await ctx.load(true)
@@ -156,7 +168,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
   // 浏览器直接保存文件，恶意内容（HTML/SVG 脚本等）不会被渲染执行。
   function download(o: ObjectItem) {
     const a = document.createElement('a')
-    a.href = proxyUrl(ctx.account.value!.id, ctx.currentBucket.value, 'download', o.key, api.base)
+    a.href = proxyUrl(requireAccId(), ctx.currentBucket.value, 'download', o.key, api.base)
     a.download = o.key.split('/').pop() ?? 'object'
     document.body.appendChild(a)
     a.click()
@@ -166,7 +178,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
   /** 生成 1 小时签名链接并复制（右键菜单用）。 */
   async function copySignLink(o: ObjectItem) {
     try {
-      const res = await s3api.presign(ctx.account.value!.id, {
+      const res = await s3api.presign(requireAccId(), {
         method: 'get',
         key: o.key,
         bucket: ctx.currentBucket.value,
@@ -229,7 +241,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     const target = newKey.trim()
     if (target === key) return
     try {
-      const r = await s3api.renameObject(ctx.account.value!.id, {
+      const r = await s3api.renameObject(requireAccId(), {
         bucket: ctx.currentBucket.value,
         key,
         newKey: target,
@@ -249,14 +261,18 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
   }
 
   async function showDetail(key: string) {
+    // seq 守卫：快速切对象时丢弃过期响应，避免旧详情覆盖新详情。
+    const seq = ++detailSeq.value
     detail.value = null
     try {
-      detail.value = await s3api.headObject(ctx.account.value!.id, {
+      const got = await s3api.headObject(requireAccId(), {
         bucket: ctx.currentBucket.value,
         key,
       })
+      if (seq !== detailSeq.value) return
+      detail.value = got
     } catch (err) {
-      ctx.error.value = toErrorMessage(err)
+      if (seq === detailSeq.value) ctx.error.value = toErrorMessage(err)
     }
   }
 
@@ -287,7 +303,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     if (name == null) return
     const key = (ctx.prefix.value + name.trim().replace(/\/+$/, '') + '/').replace(/^\/+/, '')
     try {
-      const r = await s3api.mkdirObject(ctx.account.value!.id, { bucket: ctx.currentBucket.value, key })
+      const r = await s3api.mkdirObject(requireAccId(), { bucket: ctx.currentBucket.value, key })
       toast(tf('objects.toastMkdir', { key: r.created }))
       await ctx.load(true)
     } catch (err) {
@@ -298,7 +314,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
   /* ---- 上传到当前目录（共享 useUploadQueue 状态机；cancelled 为用户中止终态） ---- */
   const uploadInput = ref<HTMLInputElement>()
   const queue = useUploadQueue({
-    target: (it) => ({ accId: ctx.account.value!.id, bucket: it.bucket || ctx.currentBucket.value, key: it.key }),
+    target: (it) => ({ accId: requireAccId(), bucket: it.bucket || ctx.currentBucket.value, key: it.key }),
   })
   const uploadQueue = queue.items
   const uploading = queue.running
@@ -342,7 +358,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     try {
       const urls: string[] = []
       for (const o of keys) {
-        const res = await s3api.presign(ctx.account.value!.id, {
+        const res = await s3api.presign(requireAccId(), {
           method: 'get',
           key: o.key,
           bucket: ctx.currentBucket.value,
@@ -365,7 +381,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     zipLoading.value = true
     try {
       const name = `objects-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.zip`
-      await s3api.downloadZipToDisk(ctx.account.value!.id, { bucket: ctx.currentBucket.value, keys }, name)
+      await s3api.downloadZipToDisk(requireAccId(), { bucket: ctx.currentBucket.value, keys }, name)
       toast(tf('objects.toastZipped', { n: keys.length }))
     } catch (err) {
       // 用户取消「另存为」不提示错误
@@ -402,7 +418,7 @@ export function useObjectActions(ctx: ObjectBrowserCtx) {
     ctx.opsBusy.value = true
     try {
       toast(t('dest.toastDeletingFolder'))
-      const start = await s3api.deletePrefixAsync(ctx.account.value!.id, {
+      const start = await s3api.deletePrefixAsync(requireAccId(), {
         bucket: ctx.currentBucket.value,
         prefix: e.key,
       })
