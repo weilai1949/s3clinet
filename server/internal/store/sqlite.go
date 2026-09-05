@@ -212,13 +212,14 @@ func (s *SQLiteStore) Update(id string, a *model.Account) (*model.Account, error
 	cur.PathStyle = a.PathStyle
 	cur.UseSSL = a.UseSSL
 	cur.UpdatedAt = time.Now().UTC()
-	// getLocked 已在同连接上探过活，Exec 失败属灾难级（连接已死），下次读请求会暴露。
-	_, _ = s.db.Exec(`
+	if _, err := s.db.Exec(`
 UPDATE accounts SET name=?,endpoint=?,public_endpoint=?,region=?,access_key=?,secret_key=?,bucket=?,path_style=?,use_ssl=?,updated_at=?
 WHERE id=?`,
 		cur.Name, cur.Endpoint, cur.PublicEndpoint, cur.Region, cur.AccessKey, cur.SecretKey, cur.Bucket,
 		sqliteBool(cur.PathStyle), sqliteBool(cur.UseSSL), cur.UpdatedAt.UTC().Format(time.RFC3339Nano), id,
-	)
+	); err != nil {
+		return nil, fmt.Errorf("sqlite update: %w", err)
+	}
 	return cur.Sanitized(), nil
 }
 

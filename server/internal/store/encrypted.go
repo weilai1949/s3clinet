@@ -167,6 +167,8 @@ func (s *EncryptedStore) Update(id string, a *model.Account) (*model.Account, er
 	if !ok {
 		return nil, ErrNotFound
 	}
+	// 持久化失败时回滚内存状态，保持与磁盘一致（与 JSON Store 行为对齐）。
+	prev := *cur
 	if a.SecretKey != "" && !model.IsMaskedSecret(a.SecretKey) {
 		cur.SecretKey = a.SecretKey
 	}
@@ -180,6 +182,7 @@ func (s *EncryptedStore) Update(id string, a *model.Account) (*model.Account, er
 	cur.UseSSL = a.UseSSL
 	cur.UpdatedAt = time.Now().UTC()
 	if err := s.persistLocked(); err != nil {
+		*cur = prev
 		return nil, err
 	}
 	return cur.Sanitized(), nil

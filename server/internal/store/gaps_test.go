@@ -771,3 +771,73 @@ func TestGapSQLiteUpdatePreservesSecretKey(t *testing.T) {
 		t.Fatalf("SecretKey persisted = %q, want new-secret-value", raw.SecretKey)
 	}
 }
+
+// TestGapEncryptedUpdateRollbackOnPersistFail 持久化失败时内存须回滚到原值，
+// 避免「磁盘旧值、内存新值」的读写漂移（与 JSON Store Update 行为对齐）。
+func TestGapEncryptedUpdateRollbackOnPersistFail(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewEncrypted(filepath.Join(dir, "a.enc"), "pw-very-long-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.Create(gapAcc("orig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 备份并恢复注入点
+	origRename := atomicRename
+	t.Cleanup(func() { atomicRename = origRename })
+	atomicRename = func(_, _ string) error { return errors.New("rename fail") }
+
+	upd := gapAcc("updated")
+	if _, err := st.Update(a.ID, upd); err == nil {
+		t.Fatal("Update should fail when persist fails")
+	}
+
+	// 内存应回滚：原值仍可读出
+	raw, err := st.Get(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.Name != "orig" {
+		t.Fatalf("after failed Update, Name = %q, want orig (in-memory rollback)", raw.Name)
+	}
+}
+
+// TestGapJSONUpdateRollbackOnPersistFail 与 EncryptedStore 行为对齐：JSON Store
+// 原本已支持回滚，此处显式补测以防回归。
+func TestGapJSONUpdateRollbackOnPersistFail(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st, err := New(filepath.Join(dir, "a.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.Create(gapAcc("orig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	origRename := atomicRename
+	t.Cleanup(func() { atomicRename = origRename })
+	atomicRename = func(_, _ string) error { return errors.New("rename fail") }
+
+	upd := gapAcc("updated")
+	if _, err := st.Update(a.ID, upd); err == nil {
+		t.Fatal("Update should fail when persist fails")
+	}
+
+	raw, err := st.Get(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.Name != "orig" {
+		t.Fatalf("after failed Update, Name = %q, want orig (in-memory rollback)", raw.Name)
+	}
+}
